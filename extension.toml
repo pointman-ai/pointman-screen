@@ -1,7 +1,7 @@
 [extension]
 id = "screen"
 name = "Screen"
-version = "0.1.2"
+version = "0.2.0"
 publisher = "aurelio"
 summary = "A display, app or window of this machine as a live pane that agents can open and steer, and stills of it."
 node = ">=0.1,<1"
@@ -11,8 +11,9 @@ platforms = ["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64"]
 runtime = "binary"               # one build per platform, each release (.github/workflows/release.yml)
 command = ["bin/screen"]
 
-# A display, an app's frontmost window or one window, with the pointer, captured with ffmpeg on macOS
-# (avfoundation) and X11 (x11grab), and with wf-recorder and grim on Hyprland (wlroots' screencopy).
+# A display, an app's frontmost window or one window, with the pointer: on macOS with ScreenCaptureKit
+# (a window's own pixels, even when covered), on X11 with ffmpeg's x11grab, and on Hyprland with
+# wf-recorder and grim (wlroots' screencopy).
 # Only while a live pane has a viewer, or for a still someone asked for.
 [settings]
 type = "object"

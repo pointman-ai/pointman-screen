@@ -59,7 +59,7 @@ fn it_lists_displays_and_windows_front_to_back_without_capturing() {
 }
 
 #[test]
-fn a_still_of_an_app_is_its_frontmost_window_cropped_from_its_display() {
+fn a_still_of_an_app_is_its_frontmost_windows_own_frame() {
     let screen = Screen::start(fakes(Backend::Mac), json!({"quality": 3}));
     let done = screen.node.run("screen.still", json!({"target": {"app": "blender"}, "thread_id": 11576})).unwrap();
     assert_eq!(done.result["name"], "Blender: Untitled.blend");
@@ -69,18 +69,12 @@ fn a_still_of_an_app_is_its_frontmost_window_cropped_from_its_display() {
     assert_eq!((out.kind.as_str(), out.role.as_str()), ("image", "main"));
     assert_eq!(out.path.file_name().unwrap(), "Blender- Untitled.blend.jpg");
     assert_eq!(out.meta["screen"], "Blender: Untitled.blend");
+    // the window's own frame (ScreenCaptureKit), not its part of the display, which another window may cover:
+    // 1280×720 points at 2 pixels a point, at most 1920 across
+    assert_eq!(screen.nth("screen frames", 0), "screen frames window 388 1920 1080 30");
     let still = screen.call("-frames:v 1", 0);
-    // Display 2 is "Capture screen 1"; the window is a quarter in and half of it each way
-    assert!(
-        still.contains("-f avfoundation -capture_cursor 1 -pixel_format nv12 -framerate 30 -i Capture screen 1"),
-        "{still}"
-    );
-    assert!(
-        still.contains(
-            "crop=w=trunc(iw*0.500000/2)*2:h=trunc(ih*0.500000/2)*2:x=trunc(iw*0.250000):y=trunc(ih*0.250000)"
-        ),
-        "{still}"
-    );
+    assert!(still.contains("-f rawvideo -pix_fmt bgra -video_size 1920x1080 -framerate 30 -i pipe:0"), "{still}");
+    assert!(!still.contains("avfoundation") && !still.contains("crop="), "{still}");
     assert!(still.contains("scale=w=trunc(min(1920\\,iw)/2)*2:h=-2") && still.contains("-q:v 3"), "{still}");
     // the fixture is 640 across: half a pixel of it a point
     assert_eq!(done.result["scale"], 0.5);
@@ -97,15 +91,14 @@ fn a_region_zooms_into_its_target_and_a_name_finds_what_it_names() {
     let target = json!({"display": 0, "region": {"x": 756, "y": 0, "width": 756, "height": 491}});
     let done = screen.node.run("screen.still", json!({"target": target, "width": 640})).unwrap();
     assert_eq!(done.result["name"], "Built-in display (a region)");
+    // the display's right half, by its CoreGraphics number (1, the fake list's first), from its top-left
+    // in points, at 2 pixels a point and at most 640 across
+    assert_eq!(screen.nth("screen frames", 0), "screen frames display 1 640 416 30 756 0 756 491");
     let still = screen.call("-frames:v 1", 0);
-    assert!(still.contains("-i Capture screen 0"), "{still}");
     assert!(
-        still.contains(
-            "crop=w=trunc(iw*0.500000/2)*2:h=trunc(ih*0.500000/2)*2:x=trunc(iw*0.500000):y=trunc(ih*0.000000)"
-        ),
+        still.contains("-f rawvideo -pix_fmt bgra -video_size 640x416") && still.contains("min(640\\,iw)"),
         "{still}"
     );
-    assert!(still.contains("min(640\\,iw)"), "{still}");
     // a slash command's bare name: an app, else a window's title
     let done = screen.node.run("screen.still", json!({"target": "preferences"})).unwrap();
     assert_eq!(done.result["window"], "390");
@@ -128,7 +121,7 @@ fn without_screen_recording_it_says_where_to_allow_it_and_captures_nothing() {
     // the list says so too (macOS leaves the titles out then)
     let list = screen.node.run("screen.list", json!({})).unwrap();
     assert!(list.result["notes"][0].as_str().unwrap().contains("Screen & System Audio Recording"));
-    assert_eq!(screen.count("ffmpeg"), 0, "{:?}", screen.calls());
+    assert_eq!(screen.count("ffmpeg") + screen.count("screen frames"), 0, "{:?}", screen.calls());
 }
 
 #[test]
@@ -140,22 +133,26 @@ fn the_live_pane_captures_only_while_someone_watches() {
     // 1920 across (the setting) in the window's shape, 16:9
     assert_eq!(view.video(), json!({"codec": "mjpeg", "width": 1920, "height": 1080, "fps": 10}));
     sleep(Duration::from_millis(300));
-    assert_eq!(screen.count("ffmpeg"), 0, "nothing captured with no one watching: {:?}", screen.calls());
+    let captured = screen.count("ffmpeg") + screen.count("screen frames");
+    assert_eq!(captured, 0, "nothing captured with no one watching: {:?}", screen.calls());
 
     view.viewers(1).unwrap();
     view.wait(WAIT, |v| v.frame_count() >= 5).unwrap();
     let frame = view.video_frames().pop().unwrap();
     assert_eq!((frame.width, frame.height), (640, 424));
     assert_eq!(frame.jpeg, std::fs::read(common::fixture("frame.jpg")).unwrap());
+    // Blender's own window, its frames fed to ffmpeg
+    assert_eq!(screen.nth("screen frames", 0), "screen frames window 388 1920 1080 10");
     let live = screen.call("-f mjpeg pipe:1", 0);
-    assert!(live.contains("-capture_cursor 1") && live.contains("-framerate 10 -i Capture screen 1"), "{live}");
-    assert!(live.contains("-vf fps=10,crop=") && live.contains("min(1920\\,iw)") && live.contains("-q:v 5"), "{live}");
+    assert!(live.contains("-f rawvideo -pix_fmt bgra -video_size 1920x1080 -framerate 10 -i pipe:0"), "{live}");
+    assert!(live.contains("-vf fps=10,scale=") && live.contains("min(1920\\,iw)") && live.contains("-q:v 5"), "{live}");
 
     // a smaller view: again at its rate and width; a second path changes nothing
     view.hint(5, 600).unwrap();
     screen.wait_calls("-f mjpeg pipe:1", 2, WAIT);
     screen.wait_calls("ffmpeg stopped", 1, WAIT);
-    assert!(screen.call("-f mjpeg pipe:1", 1).contains("fps=5,crop="), "{}", screen.call("-f mjpeg pipe:1", 1));
+    assert!(screen.call("-f mjpeg pipe:1", 1).contains("fps=5,scale="), "{}", screen.call("-f mjpeg pipe:1", 1));
+    assert_eq!(screen.nth("screen frames", 1), "screen frames window 388 640 360 5");
     view.viewers(2).unwrap();
     view.hint(5, 640).unwrap();
     sleep(Duration::from_millis(300));
@@ -189,15 +186,15 @@ fn an_agent_points_the_open_pane_elsewhere_without_closing_it() {
     assert_eq!(view.title().as_deref(), Some("Built-in display"));
     view.viewers(1).unwrap();
     view.wait(WAIT, |v| v.frame_count() >= 2).unwrap();
-    assert!(screen.call("-f mjpeg pipe:1", 0).contains("-vf fps=10,scale="), "the whole display: no crop");
+    // the whole display, by its CoreGraphics number: 3024 × 1964 pixels at most 1920 across
+    assert_eq!(screen.nth("screen frames", 0), "screen frames display 1 1920 1246 10");
 
     let done = screen.node.run("screen.show", json!({"target": {"app": "Blender"}})).unwrap();
     assert_eq!(done.result["text"], "The live pane on mac-m4 shows Blender: Untitled.blend now");
     assert_eq!(done.result["panes"], json!([{"pane": view.id(), "title": "Blender: Untitled.blend"}]));
     screen.wait_calls("-f mjpeg pipe:1", 2, WAIT);
     view.wait(WAIT, |v| v.title().as_deref() == Some("Blender: Untitled.blend")).unwrap();
-    let blender = screen.call("-f mjpeg pipe:1", 1);
-    assert!(blender.contains("-i Capture screen 1") && blender.contains("crop=w=trunc(iw*0.500000/2)"), "{blender}");
+    assert_eq!(screen.nth("screen frames", 1), "screen frames window 388 1920 1080 10");
 
     // zoomed into part of it, named by the pane's id
     let region = json!({"x": 0, "y": 0, "width": 640, "height": 360});
@@ -205,7 +202,8 @@ fn an_agent_points_the_open_pane_elsewhere_without_closing_it() {
         screen.node.run("screen.show", json!({"target": {"window": "untitled"}, "region": region, "pane": view.id()}));
     assert_eq!(done.unwrap().result["title"], "Blender: Untitled.blend (a region)");
     screen.wait_calls("-f mjpeg pipe:1", 3, WAIT);
-    assert!(screen.call("-f mjpeg pipe:1", 2).contains("crop=w=trunc(iw*0.250000/2)*2:h=trunc(ih*0.250000/2)*2"));
+    // that part of the window, from its top-left in points, at 2 pixels a point
+    assert_eq!(screen.nth("screen frames", 2), "screen frames window 388 1280 720 10 0 0 640 360");
     let before = view.frame_count();
     view.wait(WAIT, |v| v.frame_count() > before + 2).unwrap();
     assert!(view.closed().is_none(), "still open");
@@ -226,20 +224,19 @@ fn the_pane_follows_a_window_that_moves_or_closes() {
     sleep(Duration::from_millis(1500));
     assert_eq!(screen.count("-f mjpeg pipe:1"), 1, "it didn't move: no restart");
 
-    // dragged to the main display, and bigger
+    // moved, the same size: a window's own frames don't care where it is, so nothing restarts
     let mut list = mac_list();
+    list["windows"][1] = json!({"id": 388, "app": "Blender", "title": "Untitled.blend", "x": 1700, "y": 0, "width": 1280, "height": 720});
+    screen.write_mac(&list);
+    sleep(Duration::from_millis(2500));
+    assert_eq!(screen.count("-f mjpeg pipe:1"), 1, "{:?}", screen.calls());
+
+    // dragged to the main display, and another size: its capture starts again at its new size
     list["windows"][1] =
         json!({"id": 388, "app": "Blender", "title": "Untitled.blend", "x": 0, "y": 0, "width": 756, "height": 491});
     screen.write_mac(&list);
     screen.wait_calls("-f mjpeg pipe:1", 2, WAIT);
-    let moved = screen.call("-f mjpeg pipe:1", 1);
-    assert!(moved.contains("-i Capture screen 0"), "{moved}");
-    assert!(
-        moved.contains(
-            "crop=w=trunc(iw*0.500000/2)*2:h=trunc(ih*0.500000/2)*2:x=trunc(iw*0.000000):y=trunc(ih*0.000000)"
-        ),
-        "{moved}"
-    );
+    assert_eq!(screen.nth("screen frames", 1), "screen frames window 388 1512 982 10");
 
     // closed: a window by id has nothing to fall back on, so the pane stays where it was
     let mut list = mac_list();
@@ -250,6 +247,18 @@ fn the_pane_follows_a_window_that_moves_or_closes() {
     assert!(screen.node.log().contains("it's gone, so the pane stays where it was"), "{}", screen.node.log());
     let before = view.frame_count();
     view.wait(WAIT, |v| v.frame_count() > before).unwrap();
+}
+
+#[test]
+fn a_window_capture_that_fails_says_why() {
+    let screen = Screen::start(Tools { env: &[("SCREEN_CAPTURE_GONE", "1")], ..fakes(Backend::Mac) }, json!({}));
+    let e = screen.node.run("screen.still", json!({"target": {"window": 388}})).unwrap_err().message;
+    assert!(e.contains("window 388 isn't there to capture: closed, minimised or on another Space"), "{e}");
+    let view = screen.node.open_pane("live", json!({"window": 388})).unwrap();
+    view.viewers(1).unwrap();
+    screen.wait_calls("screen frames", 3, WAIT);
+    let log = screen.node.log();
+    assert!(log.contains("window 388 isn't there to capture"), "{log}");
 }
 
 #[test]

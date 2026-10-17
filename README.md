@@ -12,12 +12,19 @@ One Rust binary, `bin/screen`, built for each platform and written with the
 
 | Desktop | Lists | Captures | Needs |
 |---|---|---|---|
-| macOS | CGGetActiveDisplayList, CGWindowList (front to back, in points) | ffmpeg's avfoundation, `Capture screen N` with `-capture_cursor 1`, cropped to the window | Screen Recording for the node, once |
+| macOS | CGGetActiveDisplayList, CGWindowList (front to back, in points) | ScreenCaptureKit: a window on its own (its own pixels, even when covered), or a display, with the pointer; ffmpeg makes the MJPEG | Screen Recording for the node, once |
 | Hyprland (Wayland) | `hyprctl monitors -j`, `hyprctl clients -j` (in layout pixels) | wf-recorder (live) and grim (stills), by wlroots' screencopy | nothing: no prompt |
 | X11 | xrandr's monitors, the window manager's clients (xprop), their places (xwininfo) | ffmpeg's x11grab with `-draw_mouse 1`, the window's own pixels | nothing |
 | GNOME, KDE on Wayland | | not yet | the desktop portal, which asks someone at the screen |
 
-- **macOS:** the node needs Screen Recording (System Settings, Privacy & Security, Screen & System Audio
+- **macOS, how:** a capture is screen itself, `screen frames window|display <id> <width> <height> <fps>
+  [x y w h]`, which streams ScreenCaptureKit's raw BGRA frames (already scaled to that size) to ffmpeg's
+  stdin. A window's target uses the desktop-independent window filter, so it shows that window's own
+  pixels wherever it is and whatever covers it, Pointman's own window included; a display's target is
+  the display with every window on it. A region is ScreenCaptureKit's source rectangle, in points. A
+  window that only moves keeps its capture; one that changes size starts it again at the new size.
+  (ffmpeg's avfoundation screens aren't used: on macOS 26 a second capture hangs while one runs.)
+- **macOS, permission:** the node needs Screen Recording (System Settings, Privacy & Security, Screen & System Audio
   Recording). Without it, CGWindowList leaves out other apps' titles and a capture shows only the desktop,
   so screen checks first (CGPreflightScreenCaptureAccess), says where to allow it and for which program
   (the node, by its path), and asks macOS once a run (CGRequestScreenCaptureAccess), which shows macOS's
@@ -47,7 +54,9 @@ Any of them takes `region: {x, y, width, height}`, from the target's top-left in
 (points on macOS, pixels on X11, layout pixels on Hyprland): a zoom into part of it. A still's answer says
 how many of its pixels a unit is (`scale`), so a region can be read off a still.
 
-A window shown is cut out of its display, so whatever covers it shows too, as it does on the screen.
+On macOS a window's target is that window's own pixels, even when another window covers it. On X11 and
+Hyprland it's cut out of its display, so whatever covers it shows too, as it does on the screen
+(Hyprland's tiling rarely overlaps windows).
 
 ## Commands
 
@@ -82,9 +91,10 @@ straight to the app that opened it.
 - The app's hints set its rate and width (`max_fps: 0` pauses it), within the settings; a width is rounded
   up to 320, 480, 640, 960, 1280, 1920, 2560 or 3840.
 - **Following:** while an app's or a window's pane is captured, the window is found again once a second
-  (CGWindowList, hyprctl, or one `xwininfo -id`). Moved or resized, the capture starts again on its new
-  place. Gone, the target is looked for afresh (an app's next window); with nothing there, the pane keeps
-  the place it had and the log says so.
+  (CGWindowList, hyprctl, or one `xwininfo -id`). Resized, the capture starts again at its new size; moved,
+  it does too on X11 and Hyprland, and on macOS it needn't (a window's own pixels are where it is). Gone,
+  the target is looked for afresh (an app's next window); with nothing there, the pane keeps the place it
+  had and the log says so.
 - `screen.show` changes the target and the pane's title, and starts the capture again at once if someone's
   watching.
 - If the capture stops on its own, it's tried again 1 s later, doubling to 30 s.
@@ -103,11 +113,13 @@ Per machine, in `~/.config/pointman/extensions/screen/config.toml`:
 
 `cargo test`. The tests run screen under the SDK's stand-in node with fakes on a PATH of their own
 (tests/common): the Mac's displays and windows from a file (`SCREEN_FAKE_LIST`, as CGWindowList would
-give them), fake `xrandr`, `xprop` and `xwininfo`, a fake `hyprctl`, and fake `ffmpeg`, `wf-recorder` and
-`grim` that send a fixture frame; `SCREEN_BACKEND` picks macOS, X11 or Hyprland on any machine. The test
-pattern tests run the real ffmpeg with the screen swapped for its testsrc2, so the crops and scales are
-real (skipped without ffmpeg). No test captures a real screen, except `tests/real_screen.rs`, by hand
-only, which prints sizes and counts and deletes its still. CI checks `cargo fmt` and `cargo clippy` too,
+give them), fake `xrandr`, `xprop` and `xwininfo`, a fake `hyprctl`, fake `ffmpeg`, `wf-recorder` and
+`grim` that send a fixture frame, and a fake of screen's own ScreenCaptureKit capture (`SCREEN_FRAMES`,
+black frames at the size and rate asked, with perl); `SCREEN_BACKEND` picks macOS, X11 or Hyprland on any
+machine. The test pattern tests run the real ffmpeg on those raw frames, and on X11's screen swapped for
+its testsrc2, so the sizes are real (skipped without ffmpeg). No test captures a real screen, except
+`tests/real_screen.rs`, by hand only, which prints sizes, counts and whether two stills are the same, and
+deletes them. CI checks `cargo fmt` and `cargo clippy` too,
 on macOS and Ubuntu.
 
 A release is a tag that's extension.toml's version: .github/workflows/release.yml builds the four

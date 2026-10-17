@@ -51,7 +51,12 @@ pub fn spawn(cmd: &mut Command) -> Result<Child> {
 /// Runs `cmd` to its end, its output kept, for at most `limit`. `cancelled` is asked every 50 ms; once
 /// it says yes, the tool is stopped and the run is [`Cancelled`].
 pub fn run(cmd: &mut Command, limit: Duration, cancelled: &dyn Fn() -> bool) -> Result<Ran> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    run_fed(cmd, Stdio::null(), limit, cancelled)
+}
+
+/// [`run`], its stdin `input` (another tool's output, say).
+pub fn run_fed(cmd: &mut Command, input: Stdio, limit: Duration, cancelled: &dyn Fn() -> bool) -> Result<Ran> {
+    cmd.stdin(input).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = spawn(cmd)?;
     let out = child.stdout.take().map(|mut s| {
         thread::spawn(move || {

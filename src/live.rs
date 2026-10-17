@@ -10,7 +10,7 @@
 //! capture stops on its own, it's tried again, longer apart each time.
 
 use std::io::Read;
-use std::process::Child;
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread;
@@ -21,6 +21,7 @@ use pointman_extension::Pane;
 use serde_json::{json, Value};
 
 use crate::backend::Backend;
+use crate::ffmpeg::Pipeline;
 use crate::geom::Rect;
 use crate::jpeg::Splitter;
 use crate::proc;
@@ -92,19 +93,28 @@ struct Plan {
     area: Rect,
 }
 
-/// One run of the capture tool for the pane.
+/// One run of the capture for the pane: its tools, the one that writes MJPEG last.
 struct Capture {
     plan: Plan,
-    child: Arc<Mutex<Child>>,
+    tools: Vec<Arc<Mutex<Child>>>,
     slot: Arc<Slot>,
 }
 
 impl Capture {
     fn stop(&self) {
+        thread::spawn(self.stopping());
+    }
+
+    /// Its frames over, and what stops its tools (the encoder first, so what feeds it finds no reader).
+    fn stopping(&self) -> impl FnOnce() + Send + 'static {
         self.slot.over.store(true, Ordering::SeqCst);
         self.slot.ready.notify_all();
-        let child = self.child.clone();
-        thread::spawn(move || proc::stop(&mut lock(&child)));
+        let tools = self.tools.clone();
+        move || {
+            for tool in tools.iter().rev() {
+                proc::stop(&mut lock(tool));
+            }
+        }
     }
 }
 
@@ -156,11 +166,7 @@ pub fn close_all() {
             state.closed = true;
             state.capture.take()
         })
-        .map(|capture| {
-            capture.slot.over.store(true, Ordering::SeqCst);
-            capture.slot.ready.notify_all();
-            thread::spawn(move || proc::stop(&mut lock(&capture.child)))
-        })
+        .map(|capture| thread::spawn(capture.stopping()))
         .collect();
     for stop in stopping {
         let _ = stop.join();
@@ -326,7 +332,10 @@ impl Live {
             let mut state = lock(&self.state);
             let want =
                 if state.closed { None } else { wanted(self.settings, state.viewers, state.max_fps, state.max_width) };
-            let plan = want.map(|want| Plan { want, display: state.shown.display.id.clone(), area: state.shown.area });
+            let plan = want.map(|want| {
+                let (display, area) = self.backend.place(&state.shown);
+                Plan { want, display, area }
+            });
             if state.capture.as_ref().map(|c| &c.plan) == plan.as_ref() {
                 return;
             }
@@ -354,11 +363,29 @@ impl Live {
 
     fn start(&self, plan: Plan, shown: &Resolved, run: u64) -> Result<Capture> {
         self.backend.ready()?;
-        let mut cmd = self.backend.live(shown, plan.want.fps, plan.want.width, self.settings.quality);
-        let mut child = proc::spawn(&mut cmd)?;
+        let Pipeline { source, mut encoder } =
+            self.backend.live(shown, plan.want.fps, plan.want.width, self.settings.quality)?;
+        let mut tools = Vec::new();
+        let mut logs = Vec::new();
+        if let Some(mut source) = source {
+            let mut feeding = proc::spawn(&mut source)?;
+            if let Some(out) = feeding.stdout.take() {
+                encoder.stdin(Stdio::from(out));
+            }
+            logs.push(keep_log(feeding.stderr.take()));
+            tools.push(feeding);
+        }
+        let mut child = match proc::spawn(&mut encoder) {
+            Ok(child) => child,
+            Err(e) => {
+                tools.iter_mut().for_each(proc::stop);
+                return Err(e);
+            }
+        };
         let stdout = child.stdout.take();
-        let log = keep_log(child.stderr.take());
-        let child = Arc::new(Mutex::new(child));
+        logs.push(keep_log(child.stderr.take()));
+        tools.push(child);
+        let tools: Vec<Arc<Mutex<Child>>> = tools.into_iter().map(|t| Arc::new(Mutex::new(t))).collect();
         let slot = Arc::new(Slot::default());
         let (me, reading, title) = (self.me.clone(), slot.clone(), shown.title.clone());
         thread::spawn(move || {
@@ -370,7 +397,10 @@ impl Live {
             reading.over.store(true, Ordering::SeqCst);
             reading.ready.notify_all();
             if let Some(live) = me.upgrade() {
-                let why = crate::ffmpeg::explain(&lock(&log));
+                // what the feeding tool said first: it says why (a window that closed), ffmpeg only that
+                // its input ended
+                let said: String = logs.iter().map(|l| lock(l).clone()).collect::<Vec<_>>().join("\n");
+                let why = crate::ffmpeg::explain(&said);
                 let ran = started.elapsed().as_secs();
                 live.pane.handle().log(format!("live {title}: it stopped after {frames} frames in {ran} s: {why}"));
                 live.again(run, frames > 0 && ran >= 10);
@@ -378,7 +408,7 @@ impl Live {
         });
         let (pane, sending) = (self.pane.clone(), slot.clone());
         thread::spawn(move || send(&pane, &sending));
-        Ok(Capture { plan, child, slot })
+        Ok(Capture { plan, tools, slot })
     }
 
     /// A capture ended on its own (or didn't start): try again, longer apart each time it happens in a

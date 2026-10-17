@@ -2,7 +2,8 @@
 //! their own, so no test lists or captures this machine's real screen: a Mac's displays and windows
 //! from a file (SCREEN_FAKE_LIST, as CGWindowList would give them), X11's from fake xrandr, xprop and
 //! xwininfo, Hyprland's from a fake hyprctl, and the captures from a fake ffmpeg, wf-recorder and grim
-//! that send the fixture frame. With `Capture::Pattern`, ffmpeg is the real one with the screen swapped
+//! that send the fixture frame, and a fake of screen's own macOS capture (SCREEN_FRAMES) that sends
+//! black frames. With `Capture::Pattern`, ffmpeg is the real one with the screen swapped
 //! for its test pattern (testsrc2), so its crops and scales are real.
 #![allow(dead_code)]
 
@@ -22,17 +23,26 @@ pub const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 pub const FFMPEG: &str = r#"#!/bin/sh
 echo "ffmpeg $*" >> "$SCREEN_CALLS"
 for last; do :; done
+# a capture's frames on stdin: none at all (it failed) is ffmpeg's end of input
+fed() {
+  case "$*" in
+    *"-i pipe:0"*)
+      if [ "$(dd bs=1 count=1 2>/dev/null | wc -c)" -eq 0 ]; then echo "[in#0 @ 0x1] Error opening input: End of file" >&2; exit 1; fi ;;
+  esac
+}
 case "$*" in
   *"-f mjpeg pipe:1"*)
     trap 'echo "ffmpeg stopped" >> "$SCREEN_CALLS"; exit 255' INT TERM
+    fed "$@"
     n=0
     while :; do
       cat "$SCREEN_FRAME" || exit 0  # nothing's reading: gone, as ffmpeg goes on a broken pipe
       n=$((n+1))
-      if [ -n "$SCREEN_DIE_AFTER" ] && [ $n -ge "$SCREEN_DIE_AFTER" ]; then echo "[avfoundation] the screen went away" >&2; exit 1; fi
+      if [ -n "$SCREEN_DIE_AFTER" ] && [ $n -ge "$SCREEN_DIE_AFTER" ]; then echo "[in#0] the capture went away" >&2; exit 1; fi
       sleep 0.05
     done ;;
   *"-frames:v 1"*)
+    fed "$@"
     cp "$SCREEN_FRAME" "$last"
     exit 0 ;;
 esac
@@ -40,8 +50,8 @@ echo "fake ffmpeg: nothing for $*" >&2
 exit 1
 "#;
 
-/// The real ffmpeg ($REAL_FFMPEG), with the screen's input (avfoundation's or x11grab's, up to its
-/// `-i`) swapped for testsrc2 at $SCREEN_PATTERN_SIZE, in real time as a screen sends it (`-re`): what's
+/// The real ffmpeg ($REAL_FFMPEG), with X11's screen (x11grab's input, up to its `-i`) swapped for
+/// testsrc2 at $SCREEN_PATTERN_SIZE, in real time as a screen sends it (`-re`): what's
 /// after it, the crop and scale, is as asked.
 pub const PATTERN: &str = r#"#!/bin/sh
 echo "ffmpeg $*" >> "$SCREEN_CALLS"
@@ -52,10 +62,22 @@ while [ $i -lt $n ]; do
     drop) [ "$a" = "-i" ] && mode=value; continue ;;
     value) mode=keep; set -- "$@" -re -f lavfi -i "testsrc2=size=$SCREEN_PATTERN_SIZE:rate=30"; continue ;;
   esac
-  if [ "$a" = "-f" ] && { [ "$1" = avfoundation ] || [ "$1" = x11grab ]; }; then mode=drop; continue; fi
+  if [ "$a" = "-f" ] && [ "$1" = x11grab ]; then mode=drop; continue; fi
   set -- "$@" "$a"
 done
 exec "$REAL_FFMPEG" "$@"
+"#;
+
+/// screen's own macOS capture (`screen frames window|display <id> <width> <height> <fps> [x y w h]`) as
+/// far as the tests need it: black BGRA frames of that size at that rate, until nothing reads them. With
+/// $SCREEN_CAPTURE_GONE it says what it was asked for has gone, as ScreenCaptureKit's would.
+pub const FRAMES: &str = r#"#!/bin/sh
+echo "screen $*" >> "$SCREEN_CALLS"
+if [ -n "$SCREEN_CAPTURE_GONE" ]; then echo "screen: $2 $3 isn't there to capture: closed, minimised or on another Space" >&2; exit 1; fi
+# at the rate asked, however long a frame takes to write, until nothing reads them
+exec perl -MTime::HiRes=time,sleep -e '$| = 1; my $frame = "\0" x $ARGV[0]; my $next = time;
+  while (1) { print $frame or exit 0; $next += 1 / $ARGV[1]; my $wait = $next - time; sleep $wait if $wait > 0 }' \
+  $(($4 * $5 * 4)) "$6"
 "#;
 
 pub const WF_RECORDER: &str = r#"#!/bin/sh
@@ -208,6 +230,7 @@ impl Screen {
         };
         script("ffmpeg", if matches!(tools.capture, Capture::Fake) { FFMPEG } else { PATTERN });
         for (name, body) in [
+            ("frames", FRAMES),
             ("wf-recorder", WF_RECORDER),
             ("grim", GRIM),
             ("hyprctl", HYPRCTL),
@@ -257,6 +280,7 @@ impl Screen {
             .env("SCREEN_CALLS", d.join("calls"))
             .env("SCREEN_FRAME", fixture("frame.jpg"))
             .env("SCREEN_FAKE_LIST", d.join("list.json"))
+            .env("SCREEN_FRAMES", bin.join("frames"))
             .env("SCREEN_HYPR", d.join("hypr"))
             .env("SCREEN_X", d.join("x"))
             .env("DISPLAY", ":0")
@@ -296,6 +320,13 @@ impl Screen {
     /// The `n`th call (from 0) that has `needle`.
     pub fn call(&self, needle: &str, n: usize) -> String {
         self.calls().into_iter().filter(|c| c.contains(needle)).nth(n).unwrap_or_default()
+    }
+
+    /// The `n`th call (from 0) that has `needle`, once there is one: a tool fed by another may say what it
+    /// was asked after the tool it feeds does.
+    pub fn nth(&self, needle: &str, n: usize) -> String {
+        self.wait_calls(needle, n + 1, Duration::from_secs(10));
+        self.call(needle, n)
     }
 
     /// Wait until `needle` has been asked `n` times.

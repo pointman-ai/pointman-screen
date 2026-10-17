@@ -1,18 +1,32 @@
-//! The capture tools' command lines: ffmpeg's avfoundation (macOS, `Capture screen N` with the
-//! pointer, cropped to a window or region) and x11grab (X11, the window's or region's pixels
-//! straight), wf-recorder for Hyprland's live pane and grim for its stills (both wlroots' screencopy,
-//! by layout pixels), each scaled to a width and sent on as MJPEG or one JPEG.
+//! The capture tools' command lines: on macOS, ScreenCaptureKit's frames of a window or display
+//! ([`crate::sck`], screen itself), fed to ffmpeg; on X11, x11grab (the window's or region's pixels
+//! straight); on Hyprland, wf-recorder for the live pane and grim for stills (both wlroots' screencopy,
+//! by layout pixels). Each is scaled to a width and sent on as MJPEG or one JPEG, with the pointer.
 
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Result};
+use pointman_extension::Cancelled;
 
-use crate::geom::Crop;
 use crate::hypr::Session;
 use crate::proc;
+use crate::sck::Ask;
 use crate::screens::Resolved;
+
+/// A live capture: the tool that writes MJPEG on stdout, and the one that feeds it, if one does.
+pub struct Pipeline {
+    pub source: Option<Command>,
+    pub encoder: Command,
+}
+
+impl From<Command> for Pipeline {
+    fn from(encoder: Command) -> Self {
+        Pipeline { source: None, encoder }
+    }
+}
 
 /// ffmpeg with what screen always wants: no banner, no keyboard.
 pub fn command() -> Command {
@@ -33,25 +47,6 @@ pub fn filters(fps: Option<u32>, crop: Option<String>, width: u32) -> String {
     f.join(",")
 }
 
-/// avfoundation's input for a display, with the pointer: `Capture screen <id>`, at `fps`.
-pub fn avfoundation(r: &Resolved, fps: u32) -> Vec<String> {
-    let screen = format!("Capture screen {}", r.display.id);
-    [
-        "-f",
-        "avfoundation",
-        "-capture_cursor",
-        "1",
-        "-pixel_format",
-        "nv12",
-        "-framerate",
-        &fps.to_string(),
-        "-i",
-        &screen,
-    ]
-    .map(String::from)
-    .to_vec()
-}
-
 /// x11grab's input for the target's own pixels, with the pointer.
 pub fn x11grab(r: &Resolved, display: &str, fps: u32) -> Vec<String> {
     let (x, y, w, h) = r.area.pixels();
@@ -60,11 +55,6 @@ pub fn x11grab(r: &Resolved, display: &str, fps: u32) -> Vec<String> {
     ["-f", "x11grab", "-draw_mouse", "1", "-framerate", &fps.to_string(), "-video_size", &size, "-i", &at]
         .map(String::from)
         .to_vec()
-}
-
-/// What of the display a macOS capture keeps: the window or region, as fractions of it.
-fn crop(r: &Resolved) -> Option<String> {
-    Crop::of(&r.display.bounds, &r.area).filter()
 }
 
 /// The live pane's ffmpeg: `input` as MJPEG on stdout, at most `width` across at `fps`.
@@ -77,9 +67,27 @@ pub fn live(input: Vec<String>, crop: Option<String>, fps: u32, width: u32, qual
     cmd
 }
 
-/// The live pane's capture on a Mac.
-pub fn live_mac(r: &Resolved, fps: u32, width: u32, quality: u32) -> Command {
-    live(avfoundation(r, fps), crop(r), fps, width, quality)
+/// ffmpeg's input for ScreenCaptureKit's raw frames, on its stdin.
+pub fn rawvideo(ask: &Ask) -> Vec<String> {
+    let size = format!("{}x{}", ask.width, ask.height);
+    let fps = ask.fps.to_string();
+    ["-f", "rawvideo", "-pix_fmt", "bgra", "-video_size", &size, "-framerate", &fps, "-i", "pipe:0"]
+        .map(String::from)
+        .to_vec()
+}
+
+/// What a Mac captures for a target, or why it can't.
+fn ask(r: &Resolved, width: u32, fps: u32) -> Result<Ask> {
+    match Ask::of(r, width, fps) {
+        Some(ask) => Ok(ask),
+        None => bail!("{} has no number ScreenCaptureKit knows it by", r.title),
+    }
+}
+
+/// The live pane's capture on a Mac: ScreenCaptureKit's frames of the window or display, fed to ffmpeg.
+pub fn live_mac(r: &Resolved, fps: u32, width: u32, quality: u32) -> Result<Pipeline> {
+    let ask = ask(r, width, fps)?;
+    Ok(Pipeline { encoder: live(rawvideo(&ask), None, fps, width, quality), source: Some(ask.command()) })
 }
 
 /// … on X11.
@@ -89,7 +97,7 @@ pub fn live_x11(r: &Resolved, display: &str, fps: u32, width: u32, quality: u32)
 
 /// wf-recorder's place for a target: the whole output by its name, else its layout pixels.
 fn region(r: &Resolved) -> Vec<String> {
-    if Crop::of(&r.display.bounds, &r.area).is_whole() && !r.display.output.is_empty() {
+    if r.area.covers(&r.display.bounds) && !r.display.output.is_empty() {
         return vec!["-o".into(), r.display.output.clone()];
     }
     let (x, y, w, h) = r.area.pixels();
@@ -116,11 +124,24 @@ pub fn still(
     out: &Path,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(u16, u16)> {
+    still_fed(input, Stdio::null(), crop, width, quality, out, cancelled)
+}
+
+/// [`still`] with ffmpeg's stdin `fed` (a window's frames).
+fn still_fed(
+    input: Vec<String>,
+    fed: Stdio,
+    crop: Option<String>,
+    width: u32,
+    quality: u32,
+    out: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(u16, u16)> {
     let mut cmd = command();
     cmd.args(["-v", "error"]).args(input);
     cmd.args(["-an", "-vf", &filters(None, crop, width), "-frames:v", "1", "-q:v", &quality.to_string()]);
     cmd.args(["-f", "image2", "-update", "1", "-y"]).arg(out);
-    let ran = proc::run(&mut cmd, Duration::from_secs(30), cancelled)?;
+    let ran = proc::run_fed(&mut cmd, fed, Duration::from_secs(30), cancelled)?;
     let jpeg = std::fs::read(out).unwrap_or_default();
     match crate::jpeg::size(&jpeg) {
         Some(size) if ran.status.success() => Ok(size),
@@ -128,6 +149,8 @@ pub fn still(
     }
 }
 
+/// A Mac's still: ScreenCaptureKit's first frame of the window or display, fed to ffmpeg, its capture
+/// stopped once ffmpeg has it.
 pub fn still_mac(
     r: &Resolved,
     width: u32,
@@ -135,7 +158,21 @@ pub fn still_mac(
     out: &Path,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(u16, u16)> {
-    still(avfoundation(r, 30), crop(r), width, quality, out, cancelled)
+    let ask = ask(r, width, 30)?;
+    let mut source = proc::spawn(&mut ask.command())?;
+    let fed = source.stdout.take().map_or_else(Stdio::null, Stdio::from);
+    let said = source.stderr.take();
+    let made = still_fed(rawvideo(&ask), fed, None, width, quality, out, cancelled);
+    proc::stop(&mut source);
+    // when ffmpeg got nothing, what the capture said is why (the window closed, say)
+    let mut why = String::new();
+    if let Some(mut said) = said {
+        let _ = said.read_to_string(&mut why);
+    }
+    match made {
+        Err(e) if !why.trim().is_empty() && !e.is::<Cancelled>() => bail!("{}", proc::tail(&why, 3)),
+        made => made,
+    }
 }
 
 pub fn still_x11(
@@ -205,24 +242,45 @@ mod tests {
     }
 
     #[test]
-    fn a_mac_window_is_cropped_from_its_display_with_the_pointer() {
+    fn a_mac_display_or_region_is_screencapturekits_frames() {
+        let d = display("1", Rect::new(1512.0, 0.0, 2560.0, 1440.0), (5120, 2880), "69733632");
+        let live = live_mac(&on(d.clone(), Rect::new(2152.0, 360.0, 1280.0, 720.0)), 10, 1920, 5).unwrap();
+        // that part of the display, from its top-left in points, scaled by ScreenCaptureKit itself
+        assert_eq!(args(&live.source.unwrap()), "frames display 69733632 1920 1080 10 640 360 1280 720");
+        let a = args(&live.encoder);
+        assert!(a.contains("-f rawvideo -pix_fmt bgra -video_size 1920x1080 -framerate 10 -i pipe:0"), "{a}");
+        assert!(
+            a.ends_with("-vf fps=10,scale=w=trunc(min(1920\\,iw)/2)*2:h=-2 -c:v mjpeg -q:v 5 -f mjpeg pipe:1"),
+            "{a}"
+        );
+        // the whole display: all of it
+        let whole = live_mac(&on(d.clone(), d.bounds), 10, 1920, 5).unwrap();
+        assert_eq!(args(&whole.source.unwrap()), "frames display 69733632 1920 1080 10");
+        // no number for ScreenCaptureKit: why, not a capture
+        let e = live_mac(&on(display("1", d.bounds, (5120, 2880), ""), d.bounds), 10, 1920, 5).err().unwrap();
+        assert_eq!(e.to_string(), "t has no number ScreenCaptureKit knows it by");
+    }
+
+    #[test]
+    fn a_mac_window_is_its_own_frames_fed_to_ffmpeg() {
         let d = display("1", Rect::new(1512.0, 0.0, 2560.0, 1440.0), (5120, 2880), "");
-        let cmd = live_mac(&on(d.clone(), Rect::new(2152.0, 360.0, 1280.0, 720.0)), 10, 1920, 5);
-        let a = args(&cmd);
-        assert!(
-            a.contains("-f avfoundation -capture_cursor 1 -pixel_format nv12 -framerate 10 -i Capture screen 1"),
-            "{a}"
+        let whole = Rect::new(2152.0, 360.0, 1280.0, 720.0);
+        let window = crate::screens::Window {
+            id: "388".into(),
+            app: "Blender".into(),
+            title: "t".into(),
+            display: "1".into(),
+            bounds: whole,
+        };
+        let r = Resolved { window: Some(window), ..on(d, whole) };
+        let live = live_mac(&r, 10, 1920, 5).unwrap();
+        let source = live.source.expect("the window's capture");
+        assert_eq!(args(&source), "frames window 388 1920 1080 10");
+        assert_eq!(
+            args(&live.encoder),
+            "-hide_banner -nostdin -v error -f rawvideo -pix_fmt bgra -video_size 1920x1080 -framerate 10 -i pipe:0 \
+             -an -vf fps=10,scale=w=trunc(min(1920\\,iw)/2)*2:h=-2 -c:v mjpeg -q:v 5 -f mjpeg pipe:1"
         );
-        assert!(
-            a.contains(
-                "-vf fps=10,crop=w=trunc(iw*0.500000/2)*2:h=trunc(ih*0.500000/2)*2:x=trunc(iw*0.250000):y=trunc(ih*0.250000),scale=w=trunc(min(1920\\,iw)/2)*2:h=-2"
-            ),
-            "{a}"
-        );
-        assert!(a.ends_with("-c:v mjpeg -q:v 5 -f mjpeg pipe:1"), "{a}");
-        // the whole display: no crop
-        let a = args(&live_mac(&on(d.clone(), d.bounds), 10, 1920, 5));
-        assert!(a.contains("-vf fps=10,scale="), "{a}");
     }
 
     #[test]

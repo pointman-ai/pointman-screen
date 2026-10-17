@@ -4,13 +4,14 @@
 //! refused rather than half-done. `SCREEN_BACKEND` (`macos`, `x11`, `hyprland`) picks one, for tests.
 
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{bail, Result};
 
+use crate::ffmpeg::Pipeline;
+use crate::geom::Rect;
 use crate::hypr::{self, Session};
 use crate::screens::{place, Found, Resolved, Window};
-use crate::{ffmpeg, mac, x11};
+use crate::{ffmpeg, mac, sck, x11};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Backend {
@@ -91,12 +92,23 @@ impl Backend {
         Ok(found)
     }
 
-    /// The live pane's capture: MJPEG on stdout.
-    pub fn live(&self, r: &Resolved, fps: u32, width: u32, quality: u32) -> Command {
+    /// The live pane's capture: MJPEG on stdout, from one tool or two.
+    pub fn live(&self, r: &Resolved, fps: u32, width: u32, quality: u32) -> Result<Pipeline> {
         match self {
-            Backend::Mac | Backend::Unsupported(_) => ffmpeg::live_mac(r, fps, width, quality),
-            Backend::X11(display) => ffmpeg::live_x11(r, display, fps, width, quality),
-            Backend::Hypr(session) => ffmpeg::live_hypr(r, session, fps, width),
+            Backend::Mac => ffmpeg::live_mac(r, fps, width, quality),
+            Backend::X11(display) => Ok(ffmpeg::live_x11(r, display, fps, width, quality).into()),
+            Backend::Hypr(session) => Ok(ffmpeg::live_hypr(r, session, fps, width).into()),
+            Backend::Unsupported(why) => bail!("{why}"),
+        }
+    }
+
+    /// What a capture of `r` depends on, so a pane restarts its capture only when that changes: on a Mac,
+    /// a window's own (its id, and the part of it, from its top-left: not where it is); else the display
+    /// and the place on it.
+    pub fn place(&self, r: &Resolved) -> (String, Rect) {
+        match (self, &r.window) {
+            (Backend::Mac, Some(w)) => (format!("window {}", w.id), sck::local(r)),
+            _ => (r.display.id.clone(), r.area),
         }
     }
 

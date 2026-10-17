@@ -1,5 +1,5 @@
-//! macOS: the displays (CGGetActiveDisplayList, the order avfoundation's `Capture screen N` counts
-//! them in), the windows on them (CGWindowList, front to back, in points), and whether the node may
+//! macOS: the displays (CGGetActiveDisplayList, each with the CoreGraphics number ScreenCaptureKit knows
+//! it by), the windows on them (CGWindowList, front to back, in points), and whether the node may
 //! record the screen (Screen Recording, under Privacy & Security). Without it, CGWindowList leaves out
 //! other apps' titles and a capture shows only the desktop, so it's checked before anything is shown.
 //!
@@ -75,8 +75,9 @@ fn responsible() -> Option<(String, String)> {
     None
 }
 
-/// The fake list: `{"displays": [{name, x, y, width, height, pixel_width, pixel_height, main}],
-/// "windows": [{id, app, title, x, y, width, height}]}`, windows front to back.
+/// The fake list: `{"displays": [{name, x, y, width, height, pixel_width, pixel_height, main, native}],
+/// "windows": [{id, app, title, x, y, width, height}]}`, windows front to back. `native` is the display's
+/// CoreGraphics number (its place in the list, from 1, if not given).
 pub fn fake(json: &str) -> Result<Found> {
     let v: Value = serde_json::from_str(json).context("the fake list isn't JSON")?;
     let n = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0);
@@ -91,7 +92,7 @@ pub fn fake(json: &str) -> Result<Found> {
             bounds: Rect::new(n(d, "x"), n(d, "y"), n(d, "width"), n(d, "height")),
             pixels: (n(d, "pixel_width") as u32, n(d, "pixel_height") as u32),
             main: d["main"].as_bool().unwrap_or(i == 0),
-            output: String::new(),
+            output: d["native"].as_u64().unwrap_or(i as u64 + 1).to_string(),
         })
         .collect();
     let windows = v["windows"]
@@ -146,7 +147,9 @@ fn real() -> Result<Found> {
         // a mode's pixels are the panel's way up; a display turned on its side is captured as it's seen
         let pixels = if matches!(d.rotation().round() as i64, 90 | 270) { (h, w) } else { (w, h) };
         let name = if d.is_builtin() { "Built-in display".to_string() } else { format!("Display {}", i + 1) };
-        displays.push(Display { id: i.to_string(), name, bounds, pixels, main: d.is_main(), output: String::new() });
+        // ScreenCaptureKit knows it by its CoreGraphics number
+        let output = id.to_string();
+        displays.push(Display { id: i.to_string(), name, bounds, pixels, main: d.is_main(), output });
     }
 
     let mut windows = Vec::new();

@@ -11,8 +11,8 @@ use crate::geom::Rect;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Display {
-    /// What it's named by: its place in the capture tool's list (avfoundation's `Capture screen <id>`,
-    /// xrandr's monitor) or Hyprland's monitor id.
+    /// What it's named by: its place in the list (CGGetActiveDisplayList's, xrandr's monitors) or
+    /// Hyprland's monitor id.
     pub id: String,
     pub name: String,
     /// Where it is, in the screen's coordinates.
@@ -20,7 +20,8 @@ pub struct Display {
     /// How big a capture of it is, in pixels.
     pub pixels: (u32, u32),
     pub main: bool,
-    /// What the capture tool calls it: Hyprland's output (`eDP-1`); unused elsewhere.
+    /// What the capture tool calls it: Hyprland's output (`eDP-1`), or macOS's CGDirectDisplayID, which
+    /// ScreenCaptureKit takes; unused on X11.
     pub output: String,
 }
 

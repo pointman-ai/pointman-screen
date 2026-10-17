@@ -48,8 +48,32 @@ fn the_main_display_for_sizes_only() {
         );
     }
 
-    let view = node.open_pane("live", Value::Null).unwrap();
-    println!("live opened: {}", view.video());
+    // a window behind another, taken two ways: its own frame (a window's target) and its part of the
+    // display (the same place as a region): on a Mac they differ, since the window in front shows in the
+    // second. Sizes, and whether the two are the same, only.
+    let n = |w: &Value, k: &str| w[k].as_f64().unwrap_or(0.0);
+    let overlaps = |a: &Value, b: &Value| {
+        n(a, "x") < n(b, "x") + n(b, "width")
+            && n(b, "x") < n(a, "x") + n(a, "width")
+            && n(a, "y") < n(b, "y") + n(b, "height")
+            && n(b, "y") < n(a, "y") + n(a, "height")
+    };
+    let covered = windows.iter().enumerate().find(|(i, w)| windows[..*i].iter().any(|front| overlaps(front, w)));
+    if let Some((_, w)) = covered {
+        let own = node.run("screen.still", json!({"target": {"window": w["id"]}})).unwrap();
+        let place = json!({"x": n(w, "x"), "y": n(w, "y"), "width": n(w, "width"), "height": n(w, "height")});
+        let cut = node.run("screen.still", json!({"target": {"display": w["display"]}, "region": place})).unwrap();
+        let (a, b) = (std::fs::read(&own.outputs[0].path).unwrap(), std::fs::read(&cut.outputs[0].path).unwrap());
+        std::fs::remove_file(&own.outputs[0].path).unwrap();
+        std::fs::remove_file(&cut.outputs[0].path).unwrap();
+        println!(
+            "a covered window: its own frame {}×{} ({} bytes), its part of the display {}×{} ({} bytes), the same: {} (both deleted)",
+            own.result["width"], own.result["height"], a.len(), cut.result["width"], cut.result["height"], b.len(), a == b
+        );
+    }
+
+    let view = node.open_pane("live", json!({"window": windows[0]["id"]})).unwrap();
+    println!("live opened on the frontmost window: {}", view.video());
     view.viewers(1).unwrap();
     let started = std::time::Instant::now();
     view.wait(Duration::from_secs(20), |v| v.frame_count() >= 20).unwrap();

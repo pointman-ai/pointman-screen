@@ -1,7 +1,7 @@
-//! screen with the real ffmpeg, its screen swapped for ffmpeg's test pattern (testsrc2) at a display's
-//! size: the crops and scales are ffmpeg's own, so a window's still and live frames come out the size
-//! the crop maths says. The displays and windows are the fake list's; no real screen is ever captured.
-//! Skipped where there's no ffmpeg.
+//! screen with the real ffmpeg: a Mac's frames black ones from the fake ScreenCaptureKit capture, and
+//! X11's screen ffmpeg's test pattern (testsrc2), so the raw frames, scales and JPEGs are ffmpeg's own
+//! work and a still and the live frames come out the size the maths says. The displays and windows are
+//! the fake list's; no real screen is ever captured. Skipped where there's no ffmpeg.
 
 mod common;
 
@@ -38,15 +38,18 @@ fn a_windows_still_is_its_part_of_a_retina_display() {
 }
 
 #[test]
-fn an_odd_window_comes_out_the_size_the_crop_maths_says() {
+fn a_region_or_a_window_comes_out_at_its_own_pixels() {
     let Some(screen) = pattern(Backend::Mac, 3024, 1964) else { return };
+    // 501 × 333 points at 2 pixels a point, exactly: ScreenCaptureKit scales, so nothing's cut to even
+    let region = json!({"x": 0, "y": 0, "width": 501, "height": 333});
+    let done = screen.node.run("screen.still", json!({"target": {"display": 0}, "region": region})).unwrap();
+    assert_eq!(size(&done), (1002, 666));
     let mut list = mac_list();
     list["windows"][0] =
         json!({"id": 410, "app": "Ghostty", "title": "~", "x": 0, "y": 0, "width": 501, "height": 333});
     screen.write_mac(&list);
     let done = screen.node.run("screen.still", json!({"target": {"app": "ghostty"}})).unwrap();
-    // geom's unit test: 501 of 1512 points is 0.331349 of 3024 pixels, which ffmpeg cuts to 1000
-    assert_eq!(size(&done), (1000, 666));
+    assert_eq!(size(&done), (1002, 666));
     let done = screen.node.run("screen.still", json!({})).unwrap();
     assert_eq!(size(&done), (1920, 1246), "the whole display, as geom::scaled says");
 }

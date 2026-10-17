@@ -1,10 +1,6 @@
-//! The crop maths: a window's or region's rectangle, in the screen's own coordinates (points on macOS,
-//! as CGWindowList and CGDisplayBounds give them; pixels on X11; layout pixels on Hyprland), cut to the
-//! display it's on, and what that is in the capture's own pixels, which may be more (a Retina display
-//! has two a point, a Hyprland monitor at scale 1.6 has 1.6).
-//!
-//! A crop is kept as fractions of its display, so ffmpeg can cut it from frames of any size (`iw`,
-//! `ih`): nothing depends on knowing the display's pixels exactly.
+//! The rectangle maths: a window's or region's rectangle, in the screen's own coordinates (points on
+//! macOS, as CGWindowList and CGDisplayBounds give them; pixels on X11; layout pixels on Hyprland), cut to
+//! the display it's on, and the size a capture of it comes out at most so wide.
 
 use serde_json::{json, Value};
 
@@ -59,63 +55,20 @@ impl Rect {
         (r.width > 0.0 && r.height > 0.0).then_some(r)
     }
 
+    /// Whether it covers all of `other`, to within half a unit.
+    pub fn covers(&self, other: &Rect) -> bool {
+        self.x <= other.x + 0.5
+            && self.y <= other.y + 0.5
+            && self.right() >= other.right() - 0.5
+            && self.bottom() >= other.bottom() - 0.5
+    }
+
     /// Whole pixels for a tool that takes them (x11grab, wf-recorder's and grim's geometry): its corner
     /// rounded in, its size down to even, at least 2 by 2.
     pub fn pixels(&self) -> (i64, i64, u32, u32) {
         let (x, y) = (self.x.ceil(), self.y.ceil());
         let even = |n: f64| ((n.floor() as i64 / 2) * 2).max(2) as u32;
         (x as i64, y as i64, even(self.right().floor() - x), even(self.bottom().floor() - y))
-    }
-}
-
-/// What the capture cuts from a display's frames, as fractions of it: 0 to 1 each.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Crop {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-impl Crop {
-    pub const WHOLE: Crop = Crop { x: 0.0, y: 0.0, width: 1.0, height: 1.0 };
-
-    /// `area` (on `display`, in the same coordinates) as fractions of it. What's off the display is
-    /// cut away first.
-    pub fn of(display: &Rect, area: &Rect) -> Crop {
-        let Some(a) = area.intersect(display) else { return Crop::WHOLE };
-        // to the 6 places the filter writes, so its size here is the size ffmpeg cuts
-        let f = |v: f64, of: f64| format!("{:.6}", (v / of).clamp(0.0, 1.0)).parse().unwrap_or(0.0);
-        Crop {
-            x: f(a.x - display.x, display.width),
-            y: f(a.y - display.y, display.height),
-            width: f(a.width, display.width),
-            height: f(a.height, display.height),
-        }
-    }
-
-    pub fn is_whole(&self) -> bool {
-        self.x <= 1e-6 && self.y <= 1e-6 && self.width >= 1.0 - 1e-6 && self.height >= 1.0 - 1e-6
-    }
-
-    /// ffmpeg's crop filter for it, in the frames' own pixels and even: none for the whole display.
-    pub fn filter(&self) -> Option<String> {
-        if self.is_whole() {
-            return None;
-        }
-        Some(format!(
-            "crop=w=trunc(iw*{:.6}/2)*2:h=trunc(ih*{:.6}/2)*2:x=trunc(iw*{:.6}):y=trunc(ih*{:.6})",
-            self.width, self.height, self.x, self.y
-        ))
-    }
-
-    /// Its size in frames `pixels` big, as ffmpeg's [`filter`](Self::filter) cuts it.
-    pub fn size_in(&self, pixels: (u32, u32)) -> (u32, u32) {
-        if self.is_whole() {
-            return pixels;
-        }
-        let cut = |of: u32, f: f64| (((f64::from(of) * f) / 2.0).trunc() as u32 * 2).max(2);
-        (cut(pixels.0, self.width), cut(pixels.1, self.height))
     }
 }
 
@@ -156,27 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn a_crop_is_fractions_of_its_display_and_cuts_even_pixels() {
-        // a window on the side display, which sits 200 points higher than the main one
-        let c = Crop::of(&SIDE, &Rect::new(2152.0, 160.0, 1280.0, 720.0));
-        assert_eq!(c, Crop { x: 0.25, y: 0.25, width: 0.5, height: 0.5 });
-        assert_eq!(
-            c.filter().unwrap(),
-            "crop=w=trunc(iw*0.500000/2)*2:h=trunc(ih*0.500000/2)*2:x=trunc(iw*0.250000):y=trunc(ih*0.250000)"
-        );
-        // its pixels, on a display at 1 and at 2 a point
-        assert_eq!(c.size_in((2560, 1440)), (1280, 720));
-        assert_eq!(c.size_in((5120, 2880)), (2560, 1440));
-        // an odd size comes out even, as ffmpeg's trunc(…/2)*2 does with the fractions it's given
-        // (501 / 1512 is 0.331349, a hair under: 1000, not 1002)
-        let odd = Crop::of(&MAIN, &Rect::new(0.0, 0.0, 501.0, 333.0));
-        assert_eq!((odd.width, odd.height), (0.331349, 0.339104));
-        assert_eq!(odd.size_in((3024, 1964)), (1000, 666));
-        assert_eq!(odd.size_in((1512, 982)), (500, 332));
-        // the whole display, or more: no crop
-        assert_eq!(Crop::of(&MAIN, &Rect::new(-10.0, -10.0, 2000.0, 2000.0)), Crop::WHOLE);
-        assert_eq!(Crop::WHOLE.filter(), None);
-        assert_eq!(Crop::WHOLE.size_in((3024, 1964)), (3024, 1964));
+    fn a_rect_covers_another_to_half_a_unit() {
+        assert!(SIDE.covers(&SIDE) && Rect::new(-10.0, -10.0, 2000.0, 2000.0).covers(&MAIN));
+        assert!(Rect::new(0.4, 0.0, 1512.0, 982.0).covers(&MAIN), "half a unit off is all of it");
+        assert!(!Rect::new(0.0, 0.0, 1511.0, 982.0).covers(&MAIN));
+        assert!(!Rect::new(2152.0, 160.0, 1280.0, 720.0).covers(&SIDE));
     }
 
     #[test]
