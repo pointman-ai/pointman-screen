@@ -145,6 +145,28 @@ pub fn find(pane: Option<&str>) -> Vec<Arc<Live>> {
     lock(&OPEN).iter().filter(|l| pane.is_none_or(|p| l.pane.id() == p) && l.pane.is_open()).cloned().collect()
 }
 
+/// Every pane's capture stopped, and waited for: the node is shutting the extension down, and a capture
+/// tool left behind would outlive it (ffmpeg until its next write fails, wf-recorder perhaps longer).
+pub fn close_all() {
+    let lives: Vec<Arc<Live>> = lock(&OPEN).drain(..).collect();
+    let stopping: Vec<_> = lives
+        .iter()
+        .filter_map(|l| {
+            let mut state = lock(&l.state);
+            state.closed = true;
+            state.capture.take()
+        })
+        .map(|capture| {
+            capture.slot.over.store(true, Ordering::SeqCst);
+            capture.slot.ready.notify_all();
+            thread::spawn(move || proc::stop(&mut lock(&capture.child)))
+        })
+        .collect();
+    for stop in stopping {
+        let _ = stop.join();
+    }
+}
+
 impl Live {
     /// A live pane showing `shown` (what `target` is now; `displays` all there are), and what the pane
     /// opens with. It's kept until [`close`](Self::close).

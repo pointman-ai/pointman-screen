@@ -1,7 +1,7 @@
 [extension]
 id = "screen"
 name = "Screen"
-version = "0.1.1"
+version = "0.1.2"
 publisher = "aurelio"
 summary = "A display, app or window of this machine as a live pane that agents can open and steer, and stills of it."
 node = ">=0.1,<1"

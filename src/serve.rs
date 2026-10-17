@@ -17,7 +17,10 @@ pub fn serve() -> Result<()> {
     ext.command("screen.still", still);
     ext.command("screen.show", show);
     ext.pane("live", open);
-    ext.run()
+    let ran = ext.run();
+    // the node said shutdown (or went): no capture outlives the extension
+    live::close_all();
+    ran
 }
 
 fn settings(h: &Handle) -> Settings {

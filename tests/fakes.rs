@@ -266,6 +266,17 @@ fn an_apps_pane_moves_to_its_next_window_when_one_closes() {
 }
 
 #[test]
+fn a_capture_stops_when_the_node_shuts_the_extension_down() {
+    let screen = mac();
+    let view = screen.node.open_pane("live", Value::Null).unwrap();
+    view.viewers(1).unwrap();
+    view.wait(WAIT, |v| v.frame_count() >= 2).unwrap();
+    // still watched, but the node stops the extension (a restart, an upgrade): ffmpeg goes with it
+    screen.node.stop();
+    screen.wait_calls("ffmpeg stopped", 1, WAIT);
+}
+
+#[test]
 fn a_capture_that_stops_is_tried_again() {
     // the fake screen goes away after 3 frames each time
     let screen = Screen::start(Tools { env: &[("SCREEN_DIE_AFTER", "3")], ..fakes(Backend::Mac) }, json!({}));

@@ -27,7 +27,7 @@ case "$*" in
     trap 'echo "ffmpeg stopped" >> "$SCREEN_CALLS"; exit 255' INT TERM
     n=0
     while :; do
-      cat "$SCREEN_FRAME"
+      cat "$SCREEN_FRAME" || exit 0  # nothing's reading: gone, as ffmpeg goes on a broken pipe
       n=$((n+1))
       if [ -n "$SCREEN_DIE_AFTER" ] && [ $n -ge "$SCREEN_DIE_AFTER" ]; then echo "[avfoundation] the screen went away" >&2; exit 1; fi
       sleep 0.05
@@ -61,7 +61,7 @@ exec "$REAL_FFMPEG" "$@"
 pub const WF_RECORDER: &str = r#"#!/bin/sh
 echo "wf-recorder $* (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)" >> "$SCREEN_CALLS"
 trap 'echo "wf-recorder stopped" >> "$SCREEN_CALLS"; exit 0' INT TERM
-while :; do cat "$SCREEN_FRAME"; sleep 0.05; done
+while :; do cat "$SCREEN_FRAME" || exit 0; sleep 0.05; done
 "#;
 
 pub const GRIM: &str = r#"#!/bin/sh
