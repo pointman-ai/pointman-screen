@@ -49,11 +49,24 @@ fn file_name(name: &str) -> String {
 
 // ------------------------------------------------------------------ commands
 
+/// How an agent shows the screen live and steers it, in screen.list's and screen.still's answers: that's
+/// where an agent reads it (run_on_machine lists only each command's title and params, and a summary is
+/// the "/" menu's).
+fn live_how(machine: &str) -> String {
+    format!(
+        "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={{\"app\": \
+         \"Blender\"}}). Then run_on_machine(\"screen.show\", {{\"target\": …}}, machine=\"{machine}\") points it \
+         at another display, app or window, with a region to zoom in, while they watch."
+    )
+}
+
 fn list(job: &Job) -> Result<Value> {
     let h = job.handle();
-    let backend = Backend::here();
+    let (backend, machine) = (Backend::here(), machine(h));
     let found = backend.list()?;
-    Ok(screens::listing(&found, &machine(h), backend.units()))
+    let mut answer = screens::listing(&found, &machine, backend.units());
+    answer["text"] = json!(format!("{}\n\n{}", answer["text"].as_str().unwrap_or_default(), live_how(&machine)));
+    Ok(answer)
 }
 
 fn still(job: &Job) -> Result<Value> {
@@ -76,11 +89,12 @@ fn still(job: &Job) -> Result<Value> {
     let scale = f64::from(w) / shown.area.width.max(1.0);
     let text = format!(
         "A still of {} on {machine}, {w}×{h}: {}×{} {units} of it, so {:.2} pixels of the still a unit. A region \
-         ({{x, y, width, height}}) is in {units} from its top-left.",
+         ({{x, y, width, height}}) is in {units} from its top-left. {}",
         shown.title,
         shown.area.width.round(),
         shown.area.height.round(),
-        scale
+        scale,
+        live_how(&machine)
     );
     Ok(json!({"name": shown.title, "display": shown.display.id, "window": shown.window.as_ref().map(|w| &w.id),
               "width": w, "height": h, "bytes": bytes, "target": whole, "area": shown.area.to_json(), "units": units,

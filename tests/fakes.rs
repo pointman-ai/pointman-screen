@@ -43,6 +43,15 @@ fn it_lists_displays_and_windows_front_to_back_without_capturing() {
         text.contains("Windows, front to back:\n- **410** Ghostty: ~/Documents, 900×600 at 40,60 on 0\n"),
         "{text}"
     );
+    // and how to show it live: an agent reads it here, since run_on_machine lists only titles and params
+    assert!(
+        text.ends_with(
+            "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={\"app\": \
+             \"Blender\"}). Then run_on_machine(\"screen.show\", {\"target\": …}, machine=\"mac-m4\") points it at \
+             another display, app or window, with a region to zoom in, while they watch."
+        ),
+        "{text}"
+    );
     // nothing captured, nothing posted, and nothing about the screen as an event
     assert_eq!(screen.count("ffmpeg"), 0, "{:?}", screen.calls());
     assert!(done.outputs.is_empty());
@@ -75,10 +84,11 @@ fn a_still_of_an_app_is_its_frontmost_window_cropped_from_its_display() {
     assert!(still.contains("scale=w=trunc(min(1920\\,iw)/2)*2:h=-2") && still.contains("-q:v 3"), "{still}");
     // the fixture is 640 across: half a pixel of it a point
     assert_eq!(done.result["scale"], 0.5);
-    assert!(done.result["text"]
-        .as_str()
-        .unwrap()
-        .contains("A region ({x, y, width, height}) is in points from its top-left"));
+    let text = done.result["text"].as_str().unwrap();
+    assert!(
+        text.contains("A region ({x, y, width, height}) is in points from its top-left. To show it live"),
+        "{text}"
+    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 [extension]
 id = "screen"
 name = "Screen"
-version = "0.1.0"
+version = "0.1.1"
 publisher = "aurelio"
 summary = "A display, app or window of this machine as a live pane that agents can open and steer, and stills of it."
 node = ">=0.1,<1"
@@ -46,7 +46,7 @@ kind = "screen.list"
 title = "Displays and windows"
 params = { type = "object", properties = {}, additionalProperties = false }
 slash = "list"
-summary = "This machine's displays and its windows front to back, each with its id, app, title, place and size (macOS in points, Linux in pixels), for a target: {display: id}, {app: name}, {window: id}. Answers only you."
+summary = "This machine's displays and windows, front to back, with the ids a target takes. Only you see it."
 
 [[commands]]
 kind = "screen.still"
@@ -54,14 +54,14 @@ title = "Take a still of the screen"
 params = { type = "object", properties = { target = { type = ["object", "string"], description = "What to take: {display: its id or main}, {app: any part of its name (its frontmost window)}, {window: its id or any part of its title}, any of them with region {x, y, width, height} from its top-left in screen.list's units; a bare name is an app, else a window, else a display. Left out: the main display." }, region = { type = "object", description = "Part of the target, {x, y, width, height} from its top-left, in screen.list's units." }, width = { type = "integer", minimum = 160, maximum = 3840, description = "The most pixels across; left out, the setting (1920)." }, thread_id = { type = "integer", description = "Post it in this thread; left out, only you get it." } }, additionalProperties = false }
 outputs = ["image"]
 slash = "still"
-summary = "A JPEG of a display, an app's window or a window, with the pointer, for you to look at: run_on_machine(\"screen.still\", {\"target\": {\"app\": \"Blender\"}}). Its answer says how many still pixels a unit is, for a region."
+summary = "A JPEG of a display, an app's window or a window, with the pointer: /screen still blender"
 
 [[commands]]
 kind = "screen.show"
-title = "Point the live screen pane"
+title = "Point the open live screen pane elsewhere"
 params = { type = "object", required = ["target"], properties = { target = { type = ["object", "string"], description = "What the pane shows now: {display: id}, {app: name}, {window: id or title}, with region {x, y, width, height} to zoom in; a bare name is an app, else a window, else a display." }, region = { type = "object", description = "Zoom into part of the target: {x, y, width, height} from its top-left, in screen.list's units." }, pane = { type = "string", description = "Which live pane (its id, pane_31); left out, every one open on this machine." } }, additionalProperties = false }
 slash = "show"
-summary = "Steer the live screen pane someone is watching, without closing it: run_on_machine(\"screen.show\", {\"target\": {\"app\": \"Blender\", \"region\": {\"x\": 0, \"y\": 0, \"width\": 800, \"height\": 600}}}). Open it first on their device: open_pane(extension=\"screen\", pane=\"live\", target={\"app\": \"Blender\"}). It follows a window as it moves."
+summary = "Point the open live pane at a display, app or window, or zoom into part of it: /screen show blender"
 
 # live frames of a display, app or window to the app that opened it, sealed by the node and sent on a
 # direct path only (docs/dev/video.md); captured only while a path is attached

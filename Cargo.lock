@@ -216,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "screen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "core-foundation",
@@ -225,6 +225,7 @@ dependencies = [
  "pointman-extension",
  "serde_json",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

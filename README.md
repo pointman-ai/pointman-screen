@@ -62,7 +62,8 @@ ever an event.
 | `screen.still` | `target?`, `region?`, `width?`, `thread_id?` | One JPEG, with the pointer, and `{name, width, height, area, units, scale}` |
 | `screen.show` | `target`, `region?`, `pane?` | Points the open live pane (that one, or every one on the machine) at `target`, without closing it |
 
-For agents, from the commands' summaries:
+For agents: `run_on_machine` lists only each command's title and params (a summary is the "/" menu's),
+so `screen.list`'s and `screen.still`'s answers end with how to show it live and steer it:
 
 ```
 open_pane(extension="screen", pane="live", target={"app": "Blender"})        # on their device
