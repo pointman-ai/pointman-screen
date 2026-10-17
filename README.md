@@ -2,8 +2,9 @@
 
 A Pointman extension: a node's display, one app or one window, with the pointer, as a live pane that
 agents can open and steer, and stills of it for agents to look at. "Take me through your render" works:
-the agent drives Blender with its own tools while the pane follows Blender's window. The spec for the pane
-is Pointman's docs/dev/video.md; it's built like [cam](https://github.com/pointman-ai/pointman-cam).
+the agent drives Blender with its own tools while the pane follows Blender's window. The pane is a
+Pointman video pane, built like [cam](https://github.com/pointman-ai/pointman-cam)'s: the node seals each
+frame and sends it straight to the app that opened it, never through Pointman's server.
 
 One Rust binary, `bin/screen`, built for each platform and written with the
 [pointman-extension](https://github.com/pointman-ai/pointman-extension) crate.
