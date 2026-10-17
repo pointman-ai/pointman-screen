@@ -170,7 +170,7 @@ pub fn tree(out: &str) -> HashMap<String, (String, String, Rect)> {
             _ => ("", named.split_once(": (").map_or("", |(_, c)| c)),
         };
         // the class's second word, its name for people: ("blender" "Blender")
-        let app = class.trim_end_matches(')').split('"').filter(|w| !w.trim().is_empty()).next_back().unwrap_or("");
+        let app = class.trim_end_matches(')').split('"').rfind(|w| !w.trim().is_empty()).unwrap_or("");
         found.insert(id, (title.to_string(), app.to_string(), Rect::new(x, y, relative.width, relative.height)));
     }
     found
