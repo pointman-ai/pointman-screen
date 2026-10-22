@@ -280,6 +280,8 @@ impl Screen {
             .env("SCREEN_CALLS", d.join("calls"))
             .env("SCREEN_FRAME", fixture("frame.jpg"))
             .env("SCREEN_FAKE_LIST", d.join("list.json"))
+            // a control input is written here, never posted to the machine running the tests
+            .env("SCREEN_FAKE_CONTROL", d.join("control"))
             .env("SCREEN_FRAMES", bin.join("frames"))
             .env("SCREEN_HYPR", d.join("hypr"))
             .env("SCREEN_X", d.join("x"))
@@ -291,6 +293,15 @@ impl Screen {
             .start()
             .unwrap();
         Screen { node, dir }
+    }
+
+    /// The events control posted, in order, as SCREEN_FAKE_CONTROL writes them.
+    pub fn controls(&self) -> Vec<Value> {
+        fs::read_to_string(self.dir.path().join("control"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
     }
 
     /// The Mac's displays and windows, as CGWindowList would say them now.

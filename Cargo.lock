@@ -358,7 +358,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "pointman-extension"
 version = "0.1.0"
-source = "git+https://github.com/pointman-ai/pointman-extension?rev=2ccde7428755e90f3226422c6af45536e4874ff3#2ccde7428755e90f3226422c6af45536e4874ff3"
+source = "git+https://github.com/pointman-ai/pointman-extension?rev=23f276a848ca46242bb29a3f49c57aa4b0247efe#23f276a848ca46242bb29a3f49c57aa4b0247efe"
 dependencies = [
  "anyhow",
  "serde",
@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "screen"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "block2",

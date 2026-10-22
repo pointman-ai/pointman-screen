@@ -297,11 +297,15 @@ fn a_capture_that_stops_is_tried_again() {
 }
 
 #[test]
-fn closing_the_pane_stops_the_capture_and_it_takes_hints_only() {
+fn closing_the_pane_stops_the_capture_and_it_takes_no_taps() {
     let screen = mac();
     let view = screen.node.open_pane("live", Value::Null).unwrap();
     let e = view.input(json!({"kind": "tap", "block": "x"})).unwrap_err().message;
-    assert_eq!(e, "the screen pane takes hints only: steer it with screen.show");
+    assert_eq!(
+        e,
+        "the screen pane takes hints, and pointer, scroll, key and text while someone controls it: steer it with \
+         screen.show"
+    );
     view.viewers(1).unwrap();
     view.wait(WAIT, |v| v.frame_count() >= 2).unwrap();
     view.close("no_viewer").unwrap();
@@ -423,4 +427,64 @@ fn a_hyprland_still_is_grims_with_the_pointer() {
     let work = done.outputs[0].path.parent().unwrap();
     let left: Vec<_> = std::fs::read_dir(work).unwrap().flatten().map(|e| e.file_name()).collect();
     assert!(left.iter().all(|f| !f.to_string_lossy().ends_with(".ppm")), "the PPM is gone: {left:?}");
+}
+
+// ------------------------------------------------------------------ control
+
+/// An hour from now, in unix seconds: a grant's `until`.
+fn soon() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 3600
+}
+
+#[test]
+fn a_person_with_control_clicks_where_the_picture_says() {
+    let screen = mac();
+    let view = screen.node.open_pane("live", json!({"app": "Blender"})).unwrap();
+    let click = json!({"kind": "pointer", "x": 0.5, "y": 0.5, "phase": "down", "button": "left", "clicks": 1});
+    // nothing before a grant: the node wouldn't pass it, and the extension refuses it too
+    let e = view.control_input(click.clone()).unwrap_err();
+    assert!(e.to_string().contains("control is off"), "{e}");
+    assert!(screen.controls().is_empty());
+
+    view.control(Some(soon()), "james", "MacBook Pro").unwrap();
+    view.control_input(click).unwrap();
+    // Blender's window is 1280×720 points at 2152,160: the middle of the picture is 2792,520
+    assert_eq!(
+        screen.controls(),
+        vec![json!({"press": "left", "down": true, "at": [2792.0, 520.0], "clicks": 1, "flags": 0})]
+    );
+    view.control_input(json!({"kind": "key", "code": 0, "mods": ["cmd"], "phase": "down"})).unwrap();
+    view.control_input(json!({"kind": "text", "text": "hi"})).unwrap();
+
+    // ending it lets go of the button and the key still held
+    view.control(None, "james", "MacBook Pro").unwrap();
+    let posted = screen.controls();
+    assert_eq!(posted[1], json!({"key": 0, "down": true, "flags": 0x0010_0000}));
+    assert_eq!(posted[2], json!({"type": "hi"}));
+    assert_eq!(posted[3], json!({"press": "left", "down": false, "at": [2792.0, 520.0], "clicks": 1, "flags": 0}));
+    assert_eq!(posted[4], json!({"key": 0, "down": false, "flags": 0}));
+    assert!(view.control_input(json!({"kind": "pointer", "x": 0.1, "y": 0.1})).is_err());
+    // hints never needed control
+    view.hint(5, 640).unwrap();
+}
+
+#[test]
+fn a_mac_without_accessibility_turns_control_down_saying_where_to_allow_it() {
+    let screen = Screen::start(
+        Tools { backend: Backend::Mac, capture: Capture::Fake, env: &[("SCREEN_FAKE_TRUSTED", "0")] },
+        json!({}),
+    );
+    let view = screen.node.open_pane("live", json!({"app": "Blender"})).unwrap();
+    let e = view.control(Some(soon()), "james", "MacBook Pro").unwrap_err().to_string();
+    assert!(e.starts_with("macOS hasn't allowed the node to control this Mac"), "{e}");
+    assert!(e.contains("Privacy & Security, Accessibility"), "{e}");
+    assert!(view.control_input(json!({"kind": "pointer", "x": 0.5, "y": 0.5})).is_err());
+}
+
+#[test]
+fn control_is_only_for_macs_for_now() {
+    let screen = Screen::start(fakes(Backend::Hyprland), json!({}));
+    let view = screen.node.open_pane("live", Value::Null).unwrap();
+    let e = view.control(Some(soon()), "james", "MacBook Pro").unwrap_err().to_string();
+    assert_eq!(e, "control works on macOS only for now");
 }

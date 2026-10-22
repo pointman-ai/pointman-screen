@@ -100,6 +100,25 @@ straight to the app that opened it.
   watching.
 - If the capture stops on its own, it's tried again 1 s later, doubling to 30 s.
 
+## Control
+
+A person can control the Mac in the picture: the pointer, clicks, scrolling and keys go to it while they
+hold control. It's on macOS only for now.
+
+- **Who:** a person turns Control on in the app. Their device signs the grant, which lasts at most an hour,
+  and the node checks it before passing it on (`pane.control`). Agents can't: they have no device to
+  sign with.
+- **Accessibility:** macOS has to allow the node to control the Mac. Without that, a grant is turned down
+  and the app shows where to allow it: System Settings, Privacy & Security, Accessibility.
+- **Inputs:** `pointer` `{x, y, phase: move|down|up, button: left|right, clicks}`, `scroll` `{dx, dy, x, y}`
+  in pixels, `key` `{code, mods, phase}` with a macOS key code, and `text` `{text}` for a paste. `x` and
+  `y` are 0 to 1 of the picture, so they land on what the pane shows: the window where it is now, or the
+  region it's zoomed into.
+- **Only while it holds:** the node passes those inputs only during a grant, and the extension refuses
+  them too, before one or after its `until`.
+- **Nothing left held down:** when control ends (turned off, run out, or the pane closed), any button or key
+  still down is let go.
+
 ## Settings
 
 Per machine, in `~/.config/pointman/extensions/screen/config.toml`:

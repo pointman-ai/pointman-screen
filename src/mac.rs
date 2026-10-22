@@ -61,7 +61,7 @@ fn refused() -> String {
 
 /// What macOS asks about: the node that started this extension, by its name and path.
 #[cfg(target_os = "macos")]
-fn responsible() -> Option<(String, String)> {
+pub(crate) fn responsible() -> Option<(String, String)> {
     let mut buf = vec![0u8; 4096];
     // SAFETY: proc_pidpath writes at most the buffer's size into it, and says how much it wrote
     let n = unsafe { libc::proc_pidpath(libc::getppid(), buf.as_mut_ptr().cast(), buf.len() as u32) };
@@ -71,7 +71,7 @@ fn responsible() -> Option<(String, String)> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn responsible() -> Option<(String, String)> {
+pub(crate) fn responsible() -> Option<(String, String)> {
     None
 }
 

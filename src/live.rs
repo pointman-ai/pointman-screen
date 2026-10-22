@@ -228,6 +228,11 @@ impl Live {
         lock(&self.state).shown.title.clone()
     }
 
+    /// What it shows now, in the screen's coordinates: where a control input's place lands.
+    pub fn area(&self) -> crate::geom::Rect {
+        lock(&self.state).shown.area
+    }
+
     /// The node's count of paths attached.
     pub fn viewers(&self, attached: u64) {
         lock(&self.state).viewers = attached;

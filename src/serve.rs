@@ -3,11 +3,15 @@
 //! posted only where its `thread_id` says), and nothing about the screen is ever an event. The screen
 //! is captured only for a still someone asked for, or while a live pane has a viewer.
 
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use anyhow::{bail, Result};
 use pointman_extension::{Extension, Handle, Job, Pane, Refused};
 use serde_json::{json, Value};
 
 use crate::backend::Backend;
+use crate::control::{self, Control, Grant};
 use crate::live::{self, Live, Settings};
 use crate::screens::{self, Found, Resolved, Target};
 
@@ -146,10 +150,47 @@ fn open(pane: &Pane) -> Result<Value> {
             live.viewers(attached);
         }
     });
-    let hinted = live.clone();
+    // control: a person's grant, checked by the node; their pointer, scroll, key and text inputs act on this
+    // Mac while it holds (src/control.rs)
+    let control = Arc::new(Mutex::new(Control::default()));
+    let (granted, on_mac) = (control.clone(), matches!(Backend::here(), Backend::Mac));
+    pane.on_control(move |pane: &Pane, grant: Option<&Value>| -> Result<()> {
+        let Some(grant) = grant else {
+            let let_go = lock(&granted).set(None);
+            pane.handle().log(format!("pane {}: control ended", pane.id()));
+            return control::post(&let_go);
+        };
+        if !on_mac {
+            return Err(Refused::new("control works on macOS only for now").into());
+        }
+        if let Err(e) = control::check() {
+            return Err(Refused::new(e.to_string()).into());
+        }
+        let grant = Grant::parse(grant)?;
+        pane.handle().log(format!(
+            "pane {}: {} controls it from {} until {}",
+            pane.id(),
+            grant.by,
+            grant.device,
+            grant.until
+        ));
+        lock(&granted).set(Some(grant));
+        Ok(())
+    });
+    let (hinted, acting) = (live.clone(), control.clone());
     pane.on_input(move |_: &Pane, event: &Value| -> Result<()> {
+        if matches!(event["kind"].as_str(), Some("pointer" | "scroll" | "key" | "text")) {
+            let Some(live) = hinted.upgrade() else { return Err(Refused::new("the pane is closing").into()) };
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let acts = lock(&acting).acts(event, live.area(), now).map_err(|e| Refused::new(e.to_string()))?;
+            return control::post(&acts);
+        }
         if event["kind"] != "hint" {
-            return Err(Refused::new("the screen pane takes hints only: steer it with screen.show").into());
+            return Err(Refused::new(
+                "the screen pane takes hints, and pointer, scroll, key and text while someone controls it: steer \
+                 it with screen.show",
+            )
+            .into());
         }
         // a hint says only what changed; a rate may be a fraction
         let number =
@@ -160,11 +201,16 @@ fn open(pane: &Pane) -> Result<Value> {
         Ok(())
     });
     pane.on_close(move |_: &Pane, _: &str| {
+        let _ = control::post(&lock(&control).set(None)); // nothing left held down
         if let Some(live) = live.upgrade() {
             live.close();
         }
     });
     Ok(answer)
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[cfg(test)]

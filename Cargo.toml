@@ -1,6 +1,6 @@
 [package]
 name = "screen"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "A display, app or window of this machine as a live pane that agents can open and steer."
 license = "MIT"
@@ -10,13 +10,13 @@ publish = false
 [dependencies]
 anyhow = "1"
 libc = "0.2"
-pointman-extension = { git = "https://github.com/pointman-ai/pointman-extension", rev = "2ccde7428755e90f3226422c6af45536e4874ff3" }
+pointman-extension = { git = "https://github.com/pointman-ai/pointman-extension", rev = "23f276a848ca46242bb29a3f49c57aa4b0247efe" }
 serde_json = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 core-foundation = "0.10"
-core-graphics = "0.25"
+core-graphics = { version = "0.25", features = ["highsierra"] }
 dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-core-foundation = "0.3"

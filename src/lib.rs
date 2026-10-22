@@ -1,9 +1,11 @@
 //! screen: a machine's display, app or window as a live pane that agents can open and steer, and stills
 //! of it (Pointman's docs/dev/video.md). `bin/screen` is the extension its node runs ([`serve`]); the
-//! rest is how it finds what's on the screen ([`screens`], [`mac`], [`x11`], [`hypr`]) and captures it
-//! ([`backend`], [`ffmpeg`], [`sck`], [`live`]).
+//! rest is how it finds what's on the screen ([`screens`], [`mac`], [`x11`], [`hypr`]), captures it
+//! ([`backend`], [`ffmpeg`], [`sck`], [`live`]), and acts on a person's input while they hold control
+//! ([`control`]).
 
 pub mod backend;
+pub mod control;
 pub mod ffmpeg;
 pub mod geom;
 pub mod hypr;
