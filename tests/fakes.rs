@@ -4,10 +4,14 @@
 
 mod common;
 
+use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use common::{hypr_clients, mac_list, Backend, Capture, Screen, Tools};
+use common::{hypr_clients, mac_list, video, Backend, Capture, Screen, Tools};
+use pointman_extension::convert::from_struct;
+use pointman_extension::protocol::output_request::Role;
+use pointman_extension::v1::PaneFormat;
 use serde_json::{json, Value};
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -66,9 +70,9 @@ fn a_still_of_an_app_is_its_frontmost_windows_own_frame() {
     assert_eq!((done.result["display"].clone(), done.result["window"].clone()), (json!("1"), json!("388")));
     assert_eq!(done.result["area"], json!({"x": 2152, "y": 160, "width": 1280, "height": 720}));
     let out = &done.outputs[0];
-    assert_eq!((out.kind.as_str(), out.role.as_str()), ("image", "main"));
-    assert_eq!(out.path.file_name().unwrap(), "Blender- Untitled.blend.jpg");
-    assert_eq!(out.meta["screen"], "Blender: Untitled.blend");
+    assert_eq!((out.kind.as_str(), out.role.as_known()), ("image", Some(Role::Main)));
+    assert_eq!(Path::new(&out.path).file_name().unwrap(), "Blender- Untitled.blend.jpg");
+    assert_eq!(from_struct(&out.meta)["screen"], "Blender: Untitled.blend");
     // the window's own frame (ScreenCaptureKit), not its part of the display, which another window may cover:
     // 1280×720 points at 2 pixels a point, at most 1920 across
     assert_eq!(screen.nth("screen frames", 0), "screen frames window 388 1920 1080 30");
@@ -128,10 +132,10 @@ fn without_screen_recording_it_says_where_to_allow_it_and_captures_nothing() {
 fn the_live_pane_captures_only_while_someone_watches() {
     let screen = mac();
     let view = screen.node.open_pane("live", json!({"app": "Blender"})).unwrap();
-    assert_eq!(view.format().as_deref(), Some("video"));
+    assert_eq!(view.format(), Some(PaneFormat::PANE_FORMAT_VIDEO));
     assert_eq!(view.title().as_deref(), Some("Blender: Untitled.blend"));
     // 1920 across (the setting) in the window's shape, 16:9
-    assert_eq!(view.video(), json!({"codec": "mjpeg", "width": 1920, "height": 1080, "fps": 10}));
+    assert_eq!(video(&view), json!({"codec": "CODEC_MJPEG", "width": 1920, "height": 1080, "fps": 10.0}));
     sleep(Duration::from_millis(300));
     let captured = screen.count("ffmpeg") + screen.count("screen frames");
     assert_eq!(captured, 0, "nothing captured with no one watching: {:?}", screen.calls());
@@ -300,7 +304,7 @@ fn a_capture_that_stops_is_tried_again() {
 fn closing_the_pane_stops_the_capture_and_it_takes_no_taps() {
     let screen = mac();
     let view = screen.node.open_pane("live", Value::Null).unwrap();
-    let e = view.input(json!({"kind": "tap", "block": "x"})).unwrap_err().message;
+    let e = view.input_json(json!({"kind": "tap", "block": "x"})).unwrap_err().message;
     assert_eq!(
         e,
         "the screen pane takes hints, and pointer, scroll, key and text while someone controls it: steer it with \
@@ -394,7 +398,7 @@ fn hyprland_lists_whats_shown_and_records_with_wf_recorder() {
     );
 
     let view = screen.node.open_pane("live", Value::Null).unwrap();
-    assert_eq!(view.video(), json!({"codec": "mjpeg", "width": 1920, "height": 1080, "fps": 10}));
+    assert_eq!(video(&view), json!({"codec": "CODEC_MJPEG", "width": 1920, "height": 1080, "fps": 10.0}));
     view.viewers(1).unwrap();
     view.wait(WAIT, |v| v.frame_count() >= 3).unwrap();
     let whole = screen.call("wf-recorder", 0);
@@ -424,7 +428,7 @@ fn a_hyprland_still_is_grims_with_the_pointer() {
     assert!(grim.starts_with("grim -c -t ppm -g 1233,24 1142x1302 "), "{grim}");
     let made = screen.call("-frames:v 1", 0);
     assert!(made.contains(".ppm -an -vf scale=w=trunc(min(800\\,iw)/2)*2:h=-2 -frames:v 1"), "{made}");
-    let work = done.outputs[0].path.parent().unwrap();
+    let work = Path::new(&done.outputs[0].path).parent().unwrap();
     let left: Vec<_> = std::fs::read_dir(work).unwrap().flatten().map(|e| e.file_name()).collect();
     assert!(left.iter().all(|f| !f.to_string_lossy().ends_with(".ppm")), "the PPM is gone: {left:?}");
 }
