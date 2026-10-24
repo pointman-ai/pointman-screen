@@ -62,7 +62,7 @@ Hyprland it's cut out of its display, so whatever covers it shows too, as it doe
 ## Commands
 
 Run on a machine like any extension's: `/screen list`, `/screen still blender`, `/screen show blender` in a
-thread, or `run_on_machine` for agents. What they show answers only whoever asked: a list or a still is
+thread, or `create_job` for agents. What they show answers only whoever asked: a list or a still is
 the request's result, and a still is posted only where its `thread_id` says. Nothing about the screen is
 ever an event.
 
@@ -72,13 +72,13 @@ ever an event.
 | `screen.still` | `target?`, `region?`, `width?`, `thread_id?` | One JPEG, with the pointer, and `{name, width, height, area, units, scale}` |
 | `screen.show` | `target`, `region?`, `pane?` | Points the open live pane (that one, or every one on the machine) at `target`, without closing it |
 
-For agents: `run_on_machine` lists only each command's title and params (a summary is the "/" menu's),
+For agents: `create_job` lists only each command's title and params (a summary is the "/" menu's),
 so `screen.list`'s and `screen.still`'s answers end with how to show it live and steer it:
 
 ```
 open_pane(extension="screen", pane="live", target={"app": "Blender"})        # on their device
-run_on_machine("screen.show", {"target": {"app": "Blender", "region": {"x": 0, "y": 0, "width": 800, "height": 600}}})
-run_on_machine("screen.still", {"target": {"app": "Blender"}})                # to look first
+create_job(kind="screen.show", params={"target": {"app": "Blender", "region": {"x": 0, "y": 0, "width": 800, "height": 600}}})
+create_job(kind="screen.still", params={"target": {"app": "Blender"}})                # to look first
 ```
 
 ## The live pane

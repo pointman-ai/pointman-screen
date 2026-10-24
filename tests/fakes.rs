@@ -47,11 +47,11 @@ fn it_lists_displays_and_windows_front_to_back_without_capturing() {
         text.contains("Windows, front to back:\n- **410** Ghostty: ~/Documents, 900×600 at 40,60 on 0\n"),
         "{text}"
     );
-    // and how to show it live: an agent reads it here, since run_on_machine lists only titles and params
+    // and how to show it live: an agent reads it here, since create_job lists only titles and params
     assert!(
         text.ends_with(
             "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={\"app\": \
-             \"Blender\"}). Then run_on_machine(\"screen.show\", {\"target\": …}, machine=\"mac-m4\") points it at \
+             \"Blender\"}). Then create_job(kind=\"screen.show\", params={\"target\": …}, machine=\"mac-m4\") points it at \
              another display, app or window, with a region to zoom in, while they watch."
         ),
         "{text}"

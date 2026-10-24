@@ -60,12 +60,12 @@ fn file_name(name: &str) -> String {
 // ------------------------------------------------------------------ commands
 
 /// How an agent shows the screen live and steers it, in screen.list's and screen.still's answers: that's
-/// where an agent reads it (run_on_machine lists only each command's title and params, and a summary is
+/// where an agent reads it (create_job lists only each command's title and params, and a summary is
 /// the "/" menu's).
 fn live_how(machine: &str) -> String {
     format!(
         "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={{\"app\": \
-         \"Blender\"}}). Then run_on_machine(\"screen.show\", {{\"target\": …}}, machine=\"{machine}\") points it \
+         \"Blender\"}}). Then create_job(kind=\"screen.show\", params={{\"target\": …}}, machine=\"{machine}\") points it \
          at another display, app or window, with a region to zoom in, while they watch."
     )
 }
