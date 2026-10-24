@@ -17,8 +17,9 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use pointman_extension::protocol::pane_open_response::{video, Video};
+use pointman_extension::protocol::PaneOpenResponse;
 use pointman_extension::Pane;
-use serde_json::{json, Value};
 
 use crate::backend::Backend;
 use crate::ffmpeg::Pipeline;
@@ -60,13 +61,20 @@ pub fn wanted(settings: Settings, viewers: u64, max_fps: u32, max_width: u32) ->
 
 /// What a pane opens with: its title, and frames `width` across (the setting, so the app's hints may
 /// ask for that much whatever it's pointed at later) in the target's shape.
-pub fn opening(shown: &Resolved, settings: Settings) -> Value {
+pub fn opening(shown: &Resolved, settings: Settings) -> PaneOpenResponse {
     let (w, h) = shown.pixels();
     let (w, h) = (u64::from(w.max(1)), u64::from(h));
     let width = u64::from((settings.width / 2 * 2).max(2));
     // its height at that width, rounded to even as ffmpeg's scale (h=-2) rounds it
     let height = ((h * width + w) / (w * 2)).max(1) * 2;
-    json!({"title": shown.title, "video": {"codec": "mjpeg", "width": width, "height": height, "fps": settings.fps}})
+    let video = Video {
+        codec: video::Codec::CODEC_MJPEG.into(),
+        width: i32::try_from(width).unwrap_or(i32::MAX),
+        height: i32::try_from(height).unwrap_or(i32::MAX),
+        fps: f64::from(settings.fps),
+        ..Default::default()
+    };
+    PaneOpenResponse::video(video).titled(&shown.title)
 }
 
 /// One frame, as it came out of the splitter.
@@ -184,7 +192,7 @@ impl Live {
         displays: Vec<Display>,
         settings: Settings,
         machine: String,
-    ) -> (Weak<Live>, Value) {
+    ) -> (Weak<Live>, PaneOpenResponse) {
         let answer = opening(&shown, settings);
         let live = Arc::new_cyclic(|me| Live {
             pane,
@@ -518,6 +526,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 mod tests {
     use super::*;
     use crate::screens::Display;
+    use serde_json::json;
 
     const SETTINGS: Settings = Settings { fps: 10, width: 1920, quality: 5 };
 
@@ -549,15 +558,15 @@ mod tests {
             display: display.clone(),
         };
         assert_eq!(
-            opening(&whole, SETTINGS),
-            json!({"title": "Built-in display", "video": {"codec": "mjpeg", "width": 1920, "height": 1246, "fps": 10}})
+            serde_json::to_value(opening(&whole, SETTINGS)).unwrap(),
+            json!({"title": "Built-in display", "video": {"codec": "CODEC_MJPEG", "width": 1920, "height": 1246, "fps": 10.0}})
         );
         // a small window, 400 by 300 points: still 1920 across, so a hint may ask for that much once the
         // pane's pointed at the whole display
         let small = Resolved { area: Rect::new(10.0, 10.0, 400.0, 300.0), title: "Notes".into(), ..whole };
         assert_eq!(
-            opening(&small, SETTINGS)["video"],
-            json!({"codec": "mjpeg", "width": 1920, "height": 1440, "fps": 10})
+            serde_json::to_value(opening(&small, SETTINGS)).unwrap()["video"],
+            json!({"codec": "CODEC_MJPEG", "width": 1920, "height": 1440, "fps": 10.0})
         );
     }
 

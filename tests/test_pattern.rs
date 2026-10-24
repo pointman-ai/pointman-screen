@@ -7,7 +7,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{mac_list, real_ffmpeg, Backend, Capture, Screen, Tools};
+use common::{mac_list, real_ffmpeg, video, Backend, Capture, Screen, Tools};
 use serde_json::json;
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -58,7 +58,7 @@ fn a_region_or_a_window_comes_out_at_its_own_pixels() {
 fn the_live_pattern_follows_its_hints() {
     let Some(screen) = pattern(Backend::Mac, 5120, 2880) else { return };
     let view = screen.node.open_pane("live", json!({"app": "Blender"})).unwrap();
-    assert_eq!(view.video(), json!({"codec": "mjpeg", "width": 1920, "height": 1080, "fps": 10}));
+    assert_eq!(video(&view), json!({"codec": "CODEC_MJPEG", "width": 1920, "height": 1080, "fps": 10.0}));
     view.viewers(1).unwrap();
     view.wait(WAIT, |v| v.frame_count() >= 5).unwrap();
     let frame = view.video_frames().pop().unwrap();

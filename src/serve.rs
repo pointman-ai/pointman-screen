@@ -7,6 +7,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Result};
+use pointman_extension::protocol::output_request::Role;
+use pointman_extension::protocol::{PaneControlRequest, PaneOpenResponse};
+use pointman_extension::v1::PaneInput;
 use pointman_extension::{Extension, Handle, Job, Pane, Refused};
 use serde_json::{json, Value};
 
@@ -34,7 +37,7 @@ fn settings(h: &Handle) -> Settings {
 }
 
 fn machine(h: &Handle) -> String {
-    h.node()["machine"].as_str().filter(|m| !m.is_empty()).unwrap_or("this machine").to_string()
+    h.machine()
 }
 
 /// What a target is now, with everything listed.
@@ -57,12 +60,12 @@ fn file_name(name: &str) -> String {
 // ------------------------------------------------------------------ commands
 
 /// How an agent shows the screen live and steers it, in screen.list's and screen.still's answers: that's
-/// where an agent reads it (run_on_machine lists only each command's title and params, and a summary is
+/// where an agent reads it (create_job lists only each command's title and params, and a summary is
 /// the "/" menu's).
 fn live_how(machine: &str) -> String {
     format!(
         "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={{\"app\": \
-         \"Blender\"}}). Then run_on_machine(\"screen.show\", {{\"target\": …}}, machine=\"{machine}\") points it \
+         \"Blender\"}}). Then create_job(kind=\"screen.show\", params={{\"target\": …}}, machine=\"{machine}\") points it \
          at another display, app or window, with a region to zoom in, while they watch."
     )
 }
@@ -91,7 +94,7 @@ fn still(job: &Job) -> Result<Value> {
     let units = backend.units();
     let whole = shown.whole.to_json();
     let meta = json!({"screen": shown.title, "display": shown.display.id, "width": w, "height": h});
-    job.output(&out, "image", "main", meta);
+    job.output(&out, "image", Role::Main, meta);
     // a region is in screen.list's units, from the target's top-left: what one of them is in this picture
     let scale = f64::from(w) / shown.area.width.max(1.0);
     let text = format!(
@@ -137,7 +140,7 @@ fn show(job: &Job) -> Result<Value> {
 
 // ------------------------------------------------------------------ the live pane
 
-fn open(pane: &Pane) -> Result<Value> {
+fn open(pane: &Pane) -> Result<PaneOpenResponse> {
     let h = pane.handle();
     let (backend, s, machine) = (Backend::here(), settings(h), machine(h));
     let target = Target::parse(pane.target(), &Value::Null)?;
@@ -154,7 +157,7 @@ fn open(pane: &Pane) -> Result<Value> {
     // Mac while it holds (src/control.rs)
     let control = Arc::new(Mutex::new(Control::default()));
     let (granted, on_mac) = (control.clone(), matches!(Backend::here(), Backend::Mac));
-    pane.on_control(move |pane: &Pane, grant: Option<&Value>| -> Result<()> {
+    pane.on_control(move |pane: &Pane, grant: Option<&PaneControlRequest>| -> Result<()> {
         let Some(grant) = grant else {
             let let_go = lock(&granted).set(None);
             pane.handle().log(format!("pane {}: control ended", pane.id()));
@@ -178,14 +181,16 @@ fn open(pane: &Pane) -> Result<Value> {
         Ok(())
     });
     let (hinted, acting) = (live.clone(), control.clone());
-    pane.on_input(move |_: &Pane, event: &Value| -> Result<()> {
-        if matches!(event["kind"].as_str(), Some("pointer" | "scroll" | "key" | "text")) {
+    pane.on_input(move |_: &Pane, input: &PaneInput| -> Result<()> {
+        let mut event = input.json();
+        event["kind"] = json!(input.kind);
+        if matches!(input.kind.as_str(), "pointer" | "scroll" | "key" | "text") {
             let Some(live) = hinted.upgrade() else { return Err(Refused::new("the pane is closing").into()) };
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            let acts = lock(&acting).acts(event, live.area(), now).map_err(|e| Refused::new(e.to_string()))?;
+            let acts = lock(&acting).acts(&event, live.area(), now).map_err(|e| Refused::new(e.to_string()))?;
             return control::post(&acts);
         }
-        if event["kind"] != "hint" {
+        if input.kind != "hint" {
             return Err(Refused::new(
                 "the screen pane takes hints, and pointer, scroll, key and text while someone controls it: steer \
                  it with screen.show",
