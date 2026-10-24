@@ -1,6 +1,6 @@
 [package]
 name = "screen"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "A display, app or window of this machine as a live pane that agents can open and steer."
 license = "MIT"
