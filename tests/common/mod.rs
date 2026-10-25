@@ -12,7 +12,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use pointman_extension::testing::StandIn;
+use pointman_extension::testing::{PaneView, StandIn};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
@@ -369,4 +369,9 @@ fn write_hypr(dir: &Path, clients: &Value) {
 
 fn write_x_window(dir: &Path, x: i64, y: i64, w: i64, h: i64) {
     put(&dir.join("x/0x2400003"), &x_info(x, y, w, h));
+}
+
+/// What a video pane opened with, in the protocol's JSON (null for none).
+pub fn video(view: &PaneView) -> Value {
+    serde_json::to_value(view.video()).unwrap()
 }

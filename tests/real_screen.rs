@@ -73,7 +73,7 @@ fn the_main_display_for_sizes_only() {
     }
 
     let view = node.open_pane("live", json!({"window": windows[0]["id"]})).unwrap();
-    println!("live opened on the frontmost window: {}", view.video());
+    println!("live opened on the frontmost window: {}", common::video(&view));
     view.viewers(1).unwrap();
     let started = std::time::Instant::now();
     view.wait(Duration::from_secs(20), |v| v.frame_count() >= 20).unwrap();
