@@ -450,7 +450,7 @@ fn a_person_with_control_clicks_where_the_picture_says() {
     assert!(e.to_string().contains("control is off"), "{e}");
     assert!(screen.controls().is_empty());
 
-    view.control(Some(soon()), "james", "MacBook Pro").unwrap();
+    view.control(Some(soon()), "james", "macbook-pro").unwrap();
     view.control_input(click).unwrap();
     // Blender's window is 1280×720 points at 2152,160: the middle of the picture is 2792,520
     assert_eq!(
@@ -461,7 +461,7 @@ fn a_person_with_control_clicks_where_the_picture_says() {
     view.control_input(json!({"kind": "text", "text": "hi"})).unwrap();
 
     // ending it lets go of the button and the key still held
-    view.control(None, "james", "MacBook Pro").unwrap();
+    view.control(None, "james", "macbook-pro").unwrap();
     let posted = screen.controls();
     assert_eq!(posted[1], json!({"key": 0, "down": true, "flags": 0x0010_0000}));
     assert_eq!(posted[2], json!({"type": "hi"}));
@@ -479,7 +479,7 @@ fn a_mac_without_accessibility_turns_control_down_saying_where_to_allow_it() {
         json!({}),
     );
     let view = screen.node.open_pane("live", json!({"app": "Blender"})).unwrap();
-    let e = view.control(Some(soon()), "james", "MacBook Pro").unwrap_err().to_string();
+    let e = view.control(Some(soon()), "james", "macbook-pro").unwrap_err().to_string();
     assert!(e.starts_with("macOS hasn't allowed the node to control this Mac"), "{e}");
     assert!(e.contains("Privacy & Security, Accessibility"), "{e}");
     assert!(view.control_input(json!({"kind": "pointer", "x": 0.5, "y": 0.5})).is_err());
@@ -489,6 +489,6 @@ fn a_mac_without_accessibility_turns_control_down_saying_where_to_allow_it() {
 fn control_is_only_for_macs_for_now() {
     let screen = Screen::start(fakes(Backend::Hyprland), json!({}));
     let view = screen.node.open_pane("live", Value::Null).unwrap();
-    let e = view.control(Some(soon()), "james", "MacBook Pro").unwrap_err().to_string();
+    let e = view.control(Some(soon()), "james", "macbook-pro").unwrap_err().to_string();
     assert_eq!(e, "control works on macOS only for now");
 }
