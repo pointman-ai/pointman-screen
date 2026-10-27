@@ -76,7 +76,7 @@ For agents: `create_job` lists only each command's title and params (a summary i
 so `screen.list`'s and `screen.still`'s answers end with how to show it live and steer it:
 
 ```
-open_pane(extension="screen", pane="live", target={"app": "Blender"})        # on their device
+open_pane(extension="screen", open="live", target={"app": "Blender"})        # on their device
 create_job(kind="screen.show", params={"target": {"app": "Blender", "region": {"x": 0, "y": 0, "width": 800, "height": 600}}})
 create_job(kind="screen.still", params={"target": {"app": "Blender"}})                # to look first
 ```

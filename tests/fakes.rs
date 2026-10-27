@@ -50,7 +50,7 @@ fn it_lists_displays_and_windows_front_to_back_without_capturing() {
     // and how to show it live: an agent reads it here, since create_job lists only titles and params
     assert!(
         text.ends_with(
-            "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={\"app\": \
+            "To show it live on their device: open_pane(extension=\"screen\", open=\"live\", target={\"app\": \
              \"Blender\"}). Then create_job(kind=\"screen.show\", params={\"target\": …}, machine=\"mac-m4\") points it at \
              another display, app or window, with a region to zoom in, while they watch."
         ),

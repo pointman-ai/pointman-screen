@@ -64,7 +64,7 @@ fn file_name(name: &str) -> String {
 /// the "/" menu's).
 fn live_how(machine: &str) -> String {
     format!(
-        "To show it live on their device: open_pane(extension=\"screen\", pane=\"live\", target={{\"app\": \
+        "To show it live on their device: open_pane(extension=\"screen\", open=\"live\", target={{\"app\": \
          \"Blender\"}}). Then create_job(kind=\"screen.show\", params={{\"target\": …}}, machine=\"{machine}\") points it \
          at another display, app or window, with a region to zoom in, while they watch."
     )
