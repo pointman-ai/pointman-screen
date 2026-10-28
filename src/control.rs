@@ -18,7 +18,6 @@ use std::collections::BTreeSet;
 
 use anyhow::{anyhow, bail, Result};
 use pointman_extension::protocol::PaneControlRequest;
-use pointman_extension::v1::member_ref;
 use serde_json::{json, Value};
 
 use crate::geom::Rect;
@@ -44,11 +43,9 @@ impl Grant {
     pub fn parse(g: &PaneControlRequest) -> Result<Grant> {
         let until = g.until.as_option().and_then(|t| u64::try_from(t.seconds).ok());
         let until = until.ok_or_else(|| anyhow!("a grant's until is a time"))?;
-        let by = match g.by.as_option().and_then(|m| m.kind.as_ref()) {
-            Some(member_ref::Kind::Handle(handle)) => handle.clone(),
-            _ => String::new(),
-        };
-        Ok(Grant { until, by, device: g.device.clone().unwrap_or_default() })
+        let by = g.by.as_option().map(|m| m.name.clone()).unwrap_or_default();
+        let device = g.device.as_option().map(|d| d.name.clone()).unwrap_or_default();
+        Ok(Grant { until, by, device })
     }
 }
 
@@ -415,7 +412,7 @@ mod tests {
 
     fn held() -> Control {
         let mut c = Control::default();
-        c.set(Some(Grant { until: NOW + 600, by: "james".into(), device: "MacBook Pro".into() }));
+        c.set(Some(Grant { until: NOW + 600, by: "james".into(), device: "macbook-pro".into() }));
         c
     }
 
