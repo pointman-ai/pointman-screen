@@ -146,6 +146,7 @@ fn open(pane: &Pane) -> Result<PaneOpenResponse> {
     let target = Target::parse(pane.target(), &Value::Null)?;
     backend.ready()?;
     let (shown, found) = resolve(&backend, &target, &machine)?;
+    let on_mac = matches!(backend, Backend::Mac);
     let (live, answer) = Live::open(pane.clone(), backend, target, shown, found.displays, s, machine);
     let watching = live.clone();
     pane.on_viewers(move |_: &Pane, attached: u64| {
@@ -156,7 +157,7 @@ fn open(pane: &Pane) -> Result<PaneOpenResponse> {
     // control: a person's grant, checked by the node; their pointer, scroll, key and text inputs act on this
     // Mac while it holds (src/control.rs)
     let control = Arc::new(Mutex::new(Control::default()));
-    let (granted, on_mac) = (control.clone(), matches!(Backend::here(), Backend::Mac));
+    let granted = control.clone();
     pane.on_control(move |pane: &Pane, grant: Option<&PaneControlRequest>| -> Result<()> {
         let Some(grant) = grant else {
             let let_go = lock(&granted).set(None);
@@ -187,7 +188,9 @@ fn open(pane: &Pane) -> Result<PaneOpenResponse> {
         if matches!(input.kind.as_str(), "pointer" | "scroll" | "key" | "text") {
             let Some(live) = hinted.upgrade() else { return Err(Refused::new("the pane is closing").into()) };
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            let acts = lock(&acting).acts(&event, live.area(), now).map_err(|e| Refused::new(e.to_string()))?;
+            let acts = lock(&acting)
+                .acts(&event, live.area(), live.picture_width(), now)
+                .map_err(|e| Refused::new(e.to_string()))?;
             return control::post(&acts);
         }
         if input.kind != "hint" {

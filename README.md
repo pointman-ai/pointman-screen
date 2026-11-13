@@ -103,7 +103,8 @@ straight to the app that opened it.
 ## Control
 
 A person can control the Mac in the picture: the pointer, clicks, scrolling and keys go to it while they
-hold control. It's on macOS only for now.
+hold control. It's on macOS only for now: there the live pane's open says `control: true`, which is what
+the apps offer Control from.
 
 - **Who:** a person turns Control on in the app. Their device signs the grant, which lasts at most an hour,
   and the node checks it before passing it on (`pane.control`). Agents can't: they have no device to
@@ -111,7 +112,7 @@ hold control. It's on macOS only for now.
 - **Accessibility:** macOS has to allow the node to control the Mac. Without that, a grant is turned down
   and the app shows where to allow it: System Settings, Privacy & Security, Accessibility.
 - **Inputs:** `pointer` `{x, y, phase: move|down|up, button: left|right, clicks}`, `scroll` `{dx, dy, x, y}`
-  in pixels, `key` `{code, mods, phase}` with a macOS key code, and `text` `{text}` for a paste. `x` and
+  in the picture's pixels (scrolled as far on the screen as they cover of it), `key` `{code, mods, phase}` with a macOS key code, and `text` `{text}` for a paste. `x` and
   `y` are 0 to 1 of the picture, so they land on what the pane shows: the window where it is now, or the
   region it's zoomed into.
 - **Only while it holds:** the node passes those inputs only during a grant, and the extension refuses
