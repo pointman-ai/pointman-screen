@@ -103,7 +103,8 @@ straight to the app that opened it.
 ## Control
 
 A person can control the Mac in the picture: the pointer, clicks, scrolling and keys go to it while they
-hold control. It's on macOS only for now.
+hold control. It's on macOS only for now: there the live pane's open says `control: true`, which is what
+the apps offer Control from.
 
 - **Who:** a person turns Control on in the app. Their device signs the grant, which lasts at most an hour,
   and the node checks it before passing it on (`pane.control`). Agents can't: they have no device to

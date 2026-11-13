@@ -59,9 +59,10 @@ pub fn wanted(settings: Settings, viewers: u64, max_fps: u32, max_width: u32) ->
     Some(Want { fps: settings.fps.min(max_fps), width: settings.width.min(width) })
 }
 
-/// What a pane opens with: its title, and frames `width` across (the setting, so the app's hints may
-/// ask for that much whatever it's pointed at later) in the target's shape.
-pub fn opening(shown: &Resolved, settings: Settings) -> PaneOpenResponse {
+/// What a pane opens with: its title, frames `width` across (the setting, so the app's hints may ask for
+/// that much whatever it's pointed at later) in the target's shape, and whether a person may control the
+/// machine from it (a Mac's, EXT-156): the apps offer Control when it says so.
+pub fn opening(shown: &Resolved, settings: Settings, control: bool) -> PaneOpenResponse {
     let (w, h) = shown.pixels();
     let (w, h) = (u64::from(w.max(1)), u64::from(h));
     let width = u64::from((settings.width / 2 * 2).max(2));
@@ -74,7 +75,11 @@ pub fn opening(shown: &Resolved, settings: Settings) -> PaneOpenResponse {
         fps: f64::from(settings.fps),
         ..Default::default()
     };
-    PaneOpenResponse::video(video).titled(&shown.title)
+    let mut answer = PaneOpenResponse::video(video).titled(&shown.title);
+    if control {
+        answer.control = Some(true);
+    }
+    answer
 }
 
 /// One frame, as it came out of the splitter.
@@ -193,7 +198,7 @@ impl Live {
         settings: Settings,
         machine: String,
     ) -> (Weak<Live>, PaneOpenResponse) {
-        let answer = opening(&shown, settings);
+        let answer = opening(&shown, settings, matches!(backend, Backend::Mac));
         let live = Arc::new_cyclic(|me| Live {
             pane,
             backend,
@@ -566,16 +571,19 @@ mod tests {
             display: display.clone(),
         };
         assert_eq!(
-            serde_json::to_value(opening(&whole, SETTINGS)).unwrap(),
-            json!({"title": "Built-in display", "video": {"codec": "CODEC_MJPEG", "width": 1920, "height": 1246, "fps": 10.0}})
+            serde_json::to_value(opening(&whole, SETTINGS, true)).unwrap(),
+            json!({"title": "Built-in display", "video": {"codec": "CODEC_MJPEG", "width": 1920, "height": 1246, "fps": 10.0},
+                   "control": true})
         );
         // a small window, 400 by 300 points: still 1920 across, so a hint may ask for that much once the
         // pane's pointed at the whole display
         let small = Resolved { area: Rect::new(10.0, 10.0, 400.0, 300.0), title: "Notes".into(), ..whole };
         assert_eq!(
-            serde_json::to_value(opening(&small, SETTINGS)).unwrap()["video"],
+            serde_json::to_value(opening(&small, SETTINGS, true)).unwrap()["video"],
             json!({"codec": "CODEC_MJPEG", "width": 1920, "height": 1440, "fps": 10.0})
         );
+        // where control isn't (X11, Hyprland), it doesn't say so
+        assert!(serde_json::to_value(opening(&small, SETTINGS, false)).unwrap().get("control").is_none());
     }
 
     #[test]
