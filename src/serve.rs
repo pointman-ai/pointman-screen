@@ -187,7 +187,9 @@ fn open(pane: &Pane) -> Result<PaneOpenResponse> {
         if matches!(input.kind.as_str(), "pointer" | "scroll" | "key" | "text") {
             let Some(live) = hinted.upgrade() else { return Err(Refused::new("the pane is closing").into()) };
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            let acts = lock(&acting).acts(&event, live.area(), now).map_err(|e| Refused::new(e.to_string()))?;
+            let acts = lock(&acting)
+                .acts(&event, live.area(), live.picture_width(), now)
+                .map_err(|e| Refused::new(e.to_string()))?;
             return control::post(&acts);
         }
         if input.kind != "hint" {

@@ -241,6 +241,14 @@ impl Live {
         lock(&self.state).shown.area
     }
 
+    /// How many pixels across its frames are now (the app's last hint, no wider than what's shown): what a
+    /// control scroll's dx and dy count in.
+    pub fn picture_width(&self) -> f64 {
+        let state = lock(&self.state);
+        let asked = wanted(self.settings, 1, 1, state.max_width).map_or(self.settings.width, |w| w.width);
+        f64::from(asked.min(state.shown.pixels().0))
+    }
+
     /// The node's count of paths attached.
     pub fn viewers(&self, attached: u64) {
         lock(&self.state).viewers = attached;

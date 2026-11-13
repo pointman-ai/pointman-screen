@@ -111,7 +111,7 @@ hold control. It's on macOS only for now.
 - **Accessibility:** macOS has to allow the node to control the Mac. Without that, a grant is turned down
   and the app shows where to allow it: System Settings, Privacy & Security, Accessibility.
 - **Inputs:** `pointer` `{x, y, phase: move|down|up, button: left|right, clicks}`, `scroll` `{dx, dy, x, y}`
-  in pixels, `key` `{code, mods, phase}` with a macOS key code, and `text` `{text}` for a paste. `x` and
+  in the picture's pixels (scrolled as far on the screen as they cover of it), `key` `{code, mods, phase}` with a macOS key code, and `text` `{text}` for a paste. `x` and
   `y` are 0 to 1 of the picture, so they land on what the pane shows: the window where it is now, or the
   region it's zoomed into.
 - **Only while it holds:** the node passes those inputs only during a grant, and the extension refuses

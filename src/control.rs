@@ -139,9 +139,10 @@ impl Control {
         acts
     }
 
-    /// An input as what macOS should do, on `area` (what the pane shows now), at `now` (unix seconds):
-    /// refused without a grant or after its `until`, or when it isn't one of these.
-    pub fn acts(&mut self, event: &Value, area: Rect, now: u64) -> Result<Vec<Act>> {
+    /// An input as what macOS should do, on `area` (what the pane shows now, its frames `picture` pixels
+    /// across), at `now` (unix seconds): refused without a grant or after its `until`, or when it isn't one of
+    /// these.
+    pub fn acts(&mut self, event: &Value, area: Rect, picture: f64, now: u64) -> Result<Vec<Act>> {
         match &self.grant {
             None => bail!("control is off"),
             Some(g) if now >= g.until => bail!("control ran out: turn it on again"),
@@ -181,8 +182,11 @@ impl Control {
             Some("scroll") => {
                 let (x, y) = if event["x"].is_null() && event["y"].is_null() { self.at } else { place(event)? };
                 self.at = (x, y);
-                let px =
-                    |k: &str| event[k].as_f64().filter(|n| n.is_finite()).unwrap_or(0.0).clamp(-10_000.0, 10_000.0);
+                // the picture's pixels, as the app counts them, in the screen's points: as far as it moved over it
+                let per = if picture >= 1.0 { area.width / picture } else { 1.0 };
+                let px = |k: &str| {
+                    (event[k].as_f64().filter(|n| n.is_finite()).unwrap_or(0.0) * per).clamp(-10_000.0, 10_000.0)
+                };
                 vec![
                     Act::Move { x, y, drag: self.held },
                     Act::Scroll { x, y, dx: px("dx").round() as i32, dy: px("dy").round() as i32 },
@@ -409,6 +413,8 @@ mod tests {
 
     const AREA: Rect = Rect::new(2152.0, 160.0, 1280.0, 720.0);
     const NOW: u64 = 1_792_000_000;
+    /// frames as wide as AREA's points: a pixel of the picture is a point
+    const PIC: f64 = 1280.0;
 
     fn held() -> Control {
         let mut c = Control::default();
@@ -419,19 +425,19 @@ mod tests {
     #[test]
     fn nothing_moves_without_a_grant_or_after_it_runs_out() {
         let click = json!({"kind": "pointer", "x": 0.5, "y": 0.5, "phase": "down"});
-        let e = Control::default().acts(&click, AREA, NOW).unwrap_err();
+        let e = Control::default().acts(&click, AREA, PIC, NOW).unwrap_err();
         assert_eq!(e.to_string(), "control is off");
-        let e = held().acts(&click, AREA, NOW + 600).unwrap_err();
+        let e = held().acts(&click, AREA, PIC, NOW + 600).unwrap_err();
         assert!(e.to_string().starts_with("control ran out"), "{e}");
     }
 
     #[test]
     fn a_place_in_the_picture_is_the_same_place_on_the_screen() {
         let mut c = held();
-        let acts = c.acts(&json!({"kind": "pointer", "x": 0.25, "y": 0.5}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "pointer", "x": 0.25, "y": 0.5}), AREA, PIC, NOW).unwrap();
         assert_eq!(acts, vec![Act::Move { x: 2152.0 + 320.0, y: 160.0 + 360.0, drag: None }]);
         // past an edge, it stays on the picture
-        let acts = c.acts(&json!({"kind": "pointer", "x": 1.5, "y": -1, "phase": "move"}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "pointer", "x": 1.5, "y": -1, "phase": "move"}), AREA, PIC, NOW).unwrap();
         assert_eq!(acts, vec![Act::Move { x: 3432.0, y: 160.0, drag: None }]);
     }
 
@@ -439,14 +445,14 @@ mod tests {
     fn a_click_a_drag_and_a_double_click() {
         let mut c = held();
         let ev = |x: f64, phase: &str, clicks: i64| json!({"kind": "pointer", "x": x, "y": 0.0, "phase": phase, "clicks": clicks, "button": "left", "mods": ["cmd"]});
-        let down = c.acts(&ev(0.0, "down", 2), AREA, NOW).unwrap();
+        let down = c.acts(&ev(0.0, "down", 2), AREA, PIC, NOW).unwrap();
         assert_eq!(
             down,
             vec![Act::Press { button: Button::Left, down: true, x: 2152.0, y: 160.0, clicks: 2, flags: 0x0010_0000 }]
         );
-        let drag = c.acts(&ev(0.5, "move", 1), AREA, NOW).unwrap();
+        let drag = c.acts(&ev(0.5, "move", 1), AREA, PIC, NOW).unwrap();
         assert_eq!(drag, vec![Act::Move { x: 2792.0, y: 160.0, drag: Some(Button::Left) }]);
-        let up = c.acts(&ev(0.5, "up", 1), AREA, NOW).unwrap();
+        let up = c.acts(&ev(0.5, "up", 1), AREA, PIC, NOW).unwrap();
         assert!(matches!(up[0], Act::Press { down: false, .. }));
         assert_eq!(c.release(), vec![]); // nothing left held
     }
@@ -454,14 +460,21 @@ mod tests {
     #[test]
     fn scrolling_happens_where_it_points() {
         let mut c = held();
-        let acts = c.acts(&json!({"kind": "scroll", "dx": 0, "dy": 12.4, "x": 0.5, "y": 0.5}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "scroll", "dx": 0, "dy": 12.4, "x": 0.5, "y": 0.5}), AREA, PIC, NOW).unwrap();
         assert_eq!(
             acts,
             vec![Act::Move { x: 2792.0, y: 520.0, drag: None }, Act::Scroll { x: 2792.0, y: 520.0, dx: 0, dy: 12 }]
         );
         // without a place, where the pointer last was
-        let acts = c.acts(&json!({"kind": "scroll", "dy": -3}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "scroll", "dy": -3}), AREA, PIC, NOW).unwrap();
         assert_eq!(acts[1], Act::Scroll { x: 2792.0, y: 520.0, dx: 0, dy: -3 });
+        // frames 1920 across a window 1280 points wide: 12 of the picture's pixels are 8 of its points
+        let acts =
+            c.acts(&json!({"kind": "scroll", "dx": 3, "dy": 12, "x": 0.5, "y": 0.5}), AREA, 1920.0, NOW).unwrap();
+        assert_eq!(acts[1], Act::Scroll { x: 2792.0, y: 520.0, dx: 2, dy: 8 });
+        // and 640 across: twice as far
+        let acts = c.acts(&json!({"kind": "scroll", "dy": -5, "x": 0.5, "y": 0.5}), AREA, 640.0, NOW).unwrap();
+        assert_eq!(acts[1], Act::Scroll { x: 2792.0, y: 520.0, dx: 0, dy: -10 });
     }
 
     #[test]
@@ -471,21 +484,22 @@ mod tests {
             .acts(
                 &json!({"kind": "key", "code": 8, "chars": "c", "mods": ["cmd", "shift"], "phase": "down"}),
                 AREA,
+                PIC,
                 NOW,
             )
             .unwrap();
         assert_eq!(acts, vec![Act::Key { code: 8, down: true, flags: 0x0012_0000 }]);
         // a key with no phase is pressed and let go
-        let acts = c.acts(&json!({"kind": "key", "code": 36}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "key", "code": 36}), AREA, PIC, NOW).unwrap();
         assert_eq!(acts.len(), 2);
-        assert!(c.acts(&json!({"kind": "key", "code": 300}), AREA, NOW).is_err());
-        assert!(c.acts(&json!({"kind": "key", "code": 8, "mods": ["hyper"]}), AREA, NOW).is_err());
+        assert!(c.acts(&json!({"kind": "key", "code": 300}), AREA, PIC, NOW).is_err());
+        assert!(c.acts(&json!({"kind": "key", "code": 8, "mods": ["hyper"]}), AREA, PIC, NOW).is_err());
     }
 
     #[test]
     fn a_paste_is_typed_in_chunks_with_return_for_each_line() {
         let mut c = held();
-        let acts = c.acts(&json!({"kind": "text", "text": "hello world, this is long\nok"}), AREA, NOW).unwrap();
+        let acts = c.acts(&json!({"kind": "text", "text": "hello world, this is long\nok"}), AREA, PIC, NOW).unwrap();
         assert_eq!(
             acts,
             vec![
@@ -496,14 +510,15 @@ mod tests {
                 Act::Type("ok".into()),
             ]
         );
-        assert!(c.acts(&json!({"kind": "text", "text": "x".repeat(4001)}), AREA, NOW).is_err());
+        assert!(c.acts(&json!({"kind": "text", "text": "x".repeat(4001)}), AREA, PIC, NOW).is_err());
     }
 
     #[test]
     fn ending_control_lets_go_of_what_was_held() {
         let mut c = held();
-        c.acts(&json!({"kind": "pointer", "x": 0.0, "y": 0.0, "phase": "down", "button": "right"}), AREA, NOW).unwrap();
-        c.acts(&json!({"kind": "key", "code": 56, "phase": "down"}), AREA, NOW).unwrap();
+        c.acts(&json!({"kind": "pointer", "x": 0.0, "y": 0.0, "phase": "down", "button": "right"}), AREA, PIC, NOW)
+            .unwrap();
+        c.acts(&json!({"kind": "key", "code": 56, "phase": "down"}), AREA, PIC, NOW).unwrap();
         let let_go = c.set(None);
         assert_eq!(
             let_go,
@@ -513,6 +528,6 @@ mod tests {
             ]
         );
         assert!(c.grant().is_none());
-        assert!(c.acts(&json!({"kind": "pointer", "x": 0.0, "y": 0.0}), AREA, NOW).is_err());
+        assert!(c.acts(&json!({"kind": "pointer", "x": 0.0, "y": 0.0}), AREA, PIC, NOW).is_err());
     }
 }
