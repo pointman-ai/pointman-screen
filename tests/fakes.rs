@@ -65,7 +65,7 @@ fn it_lists_displays_and_windows_front_to_back_without_capturing() {
 #[test]
 fn a_still_of_an_app_is_its_frontmost_windows_own_frame() {
     let screen = Screen::start(fakes(Backend::Mac), json!({"quality": 3}));
-    let done = screen.node.run("screen.still", json!({"target": {"app": "blender"}, "thread_id": 11576})).unwrap();
+    let done = screen.node.run("screen.still", json!({"target": {"app": "blender"}, "channel_id": 11576})).unwrap();
     assert_eq!(done.result["name"], "Blender: Untitled.blend");
     assert_eq!((done.result["display"].clone(), done.result["window"].clone()), (json!("1"), json!("388")));
     assert_eq!(done.result["area"], json!({"x": 2152, "y": 160, "width": 1280, "height": 720}));
