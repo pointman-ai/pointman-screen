@@ -62,14 +62,14 @@ Hyprland it's cut out of its display, so whatever covers it shows too, as it doe
 ## Commands
 
 Run on a machine like any extension's: `/screen list`, `/screen still blender`, `/screen show blender` in a
-thread, or `create_job` for agents. What they show answers only whoever asked: a list or a still is
-the request's result, and a still is posted only where its `thread_id` says. Nothing about the screen is
+channel, or `create_job` for agents. What they show answers only whoever asked: a list or a still is
+the request's result, and a still is posted only where its `channel_id` says. Nothing about the screen is
 ever an event.
 
 | Kind | Params | What |
 |---|---|---|
 | `screen.list` | | `{displays: [{id, name, width, height, x, y, main}], windows: [{id, app, title, display, x, y, width, height}], units, notes}`, windows front to back |
-| `screen.still` | `target?`, `region?`, `width?`, `thread_id?` | One JPEG, with the pointer, and `{name, width, height, area, units, scale}` |
+| `screen.still` | `target?`, `region?`, `width?`, `channel_id?` | One JPEG, with the pointer, and `{name, width, height, area, units, scale}` |
 | `screen.show` | `target`, `region?`, `pane?` | Points the open live pane (that one, or every one on the machine) at `target`, without closing it |
 
 For agents: `create_job` lists only each command's title and params (a summary is the "/" menu's),

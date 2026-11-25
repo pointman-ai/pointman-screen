@@ -1,6 +1,6 @@
 //! The extension its node runs: `screen.list`, `screen.still`, `screen.show` and the `live` pane.
 //! What they show answers only whoever asked: a list or a still is the request's result (a still is
-//! posted only where its `thread_id` says), and nothing about the screen is ever an event. The screen
+//! posted only where its `channel_id` says), and nothing about the screen is ever an event. The screen
 //! is captured only for a still someone asked for, or while a live pane has a viewer.
 
 use std::sync::{Arc, Mutex, MutexGuard};
