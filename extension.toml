@@ -1,10 +1,10 @@
 [extension]
 id = "screen"
 name = "Screen"
-version = "0.5.1"
+version = "0.6.0"
 publisher = "aurelio"
 summary = "A display, app or window of this machine as a live pane that agents can open and steer, and stills of it."
-node = ">=0.4.0"
+node = ">=0.5.0"
 platforms = ["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64"]
 
 [run]
@@ -52,7 +52,7 @@ summary = "This machine's displays and windows, front to back, with the ids a ta
 [[commands]]
 kind = "screen.still"
 title = "Take a still of the screen"
-params = { type = "object", properties = { target = { type = ["object", "string"], description = "What to take: {display: its id or main}, {app: any part of its name (its frontmost window)}, {window: its id or any part of its title}, any of them with region {x, y, width, height} from its top-left in screen.list's units; a bare name is an app, else a window, else a display. Left out: the main display." }, region = { type = "object", description = "Part of the target, {x, y, width, height} from its top-left, in screen.list's units." }, width = { type = "integer", minimum = 160, maximum = 3840, description = "The most pixels across; left out, the setting (1920)." }, thread_id = { type = "integer", description = "Post it in this thread; left out, only you get it." } }, additionalProperties = false }
+params = { type = "object", properties = { target = { type = ["object", "string"], description = "What to take: {display: its id or main}, {app: any part of its name (its frontmost window)}, {window: its id or any part of its title}, any of them with region {x, y, width, height} from its top-left in screen.list's units; a bare name is an app, else a window, else a display. Left out: the main display." }, region = { type = "object", description = "Part of the target, {x, y, width, height} from its top-left, in screen.list's units." }, width = { type = "integer", minimum = 160, maximum = 3840, description = "The most pixels across; left out, the setting (1920)." }, channel_id = { type = "integer", description = "Post it in this channel; left out, only you get it." } }, additionalProperties = false }
 outputs = ["image"]
 slash = "still"
 summary = "A JPEG of a display, an app's window or a window, with the pointer: /screen still blender"
